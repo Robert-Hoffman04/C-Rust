@@ -1,0 +1,2 @@
+#define DEFINED
+#define DEFINED_IN_OTHER "this is a define stament test"

@@ -1,0 +1,129 @@
+#include <vec>          //  External rust lib import
+#include <std::fmt>
+#include "other.hrs"    //  Local file refrence
+#include "rust.rs"    //  Local rust file support
+
+
+
+//  char* error1 = "This line should be left commented out";
+/*  char* error2 = "So should this line";                    */
+#ifdef NOT_DEFINED
+char* error3 = "Preprocessing should remove this"
+#endif
+#ifdef DEFINED
+char* check4 = "But leave this intacked"
+#endif
+
+char* check5 = DEFINED_IN_OTHER;    
+char* check6 = NOT_DEFINED_AT_ALL;  //  This should cause an error
+
+
+//  Enum instantiation for standard and typedef
+//      Same as standard C syntax
+enum TestEnum
+{
+    Option1,
+    Option2
+}
+typedef enum TestTypeEnum
+{
+    Choice1,
+    Choice2
+}
+
+/*
+    Sturct instantiation for standard and typedef
+
+C structs are much simpiler than rust structs so instead syntax is based more on C++ classes.
+however syntax for traits is changed away from the inheritence formating in C++.
+*/
+
+struct ExampleStruct impliments Debug, Display
+{
+    public:
+
+        enum TestEnum enum1;
+        TestTypeEnum enum2;
+
+        int A;
+        const int B;
+
+        ExampleStruct(int A)
+        {
+            this.A = A;
+        }
+
+        int math_and_stuff()
+        {
+            return A + B * (C - B);
+        }
+
+        void test_print(char* message)
+        {   
+            private_print("This is being printed in a private function");
+            printf("Test Print: %s\n", message);
+        }
+
+        Result Display::fmt(&Formatter f)
+        {
+            //  TODO: Find a better syntax for macros
+            return macro.write(f, "A: %d, B: %d", A, B);
+        },
+
+    private:
+        int C;
+
+        void private_print(char* message)
+        {
+            printf("Private Print: %s\n", message);
+        }
+}
+
+typedef struct TypedefStruct
+{
+    int test;
+};
+
+// Global variable definitions
+
+Vec<int> rust_vector = Vec()        //  External type with new -> constructor conversion
+Vec<auto> rust_auto_vector = Vec()  //  Auto typing test
+
+const short const_mutablility_test = 10;
+long auto_mutablility_test = 10;
+long auto_non_mutablilty_test = 10;
+
+int main(int argc, char** argv)
+{
+    auto test = 1;
+    const_mutablility_test += test; //  This should cause an error
+
+    auto_mutablility_test    += test;
+    auto_non_mutablilty_test += test; //    If this line is commented, then the variable should stay non-mutable otherwise it should auto shift to mutable
+    
+    rust_vector.push(1);
+    rust_vector.push(2);
+    rust_vector.push(3);
+    rust_vector.pop();
+
+    rust_auto_vector.push('t');
+    rust_auto_vector.push('e');
+    rust_auto_vector.push('s');
+    rust_auto_vector.push('t');
+    rust_auto_vector.push(1);   //  Should cause an error
+
+    struct ExampleStruct structTest = ExampleStruct();
+    structTest.test_print("This is from inside a struct");
+    structTest.private_print("This is from inside a struct (FAIL)");   //  This should cause an error
+
+    structTest.A += structTest.B;
+    structTest.B += structTest.B;  //  This should cause an error
+    structTest.C += structTest.B;  //  This should cause an error
+
+    // TODO:
+    //      Add more test code
+    //      Make the test code actually do something
+    //      Create vscode extension for proper highlighting
+    //      
+    //      LIFETIME SYNTAX
+}
