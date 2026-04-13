@@ -1,7 +1,13 @@
-use std::{default, env, fmt::Error};
+use std::{default, env, fmt::Error, process::exit};
+
+mod helper;
+use helper::strExtensions;
+
+mod preProcessor;
+use preProcessor::PreProcessor;
 
 /*
- *  current valid args are -o <output_filename> and just <input_filename>
+ *  current valid args are "-o <output_filename>"" and just "<input_filename>""
  */
 
 #[derive(Debug)]
@@ -80,6 +86,11 @@ fn handleArgs(mut args : Vec<String>) -> Result<Arguments, Error>
     Ok(arguments)
 }
 
+fn process(args : Arguments) -> ()
+{
+    
+}
+
 fn main()
 {
     let options = handleArgs(
@@ -88,5 +99,20 @@ fn main()
         vec!["C-Rust".to_string(), "test.crs".to_string(), "-o".to_string(), "output.rs".to_string()]
     );
 
-    println!("{:?}", options);
+    let mut test = "";
+    test.remove_first_and_last();
+
+    let arguments = match options 
+    {
+        Ok(args) => args,
+        Err(err) => {
+            println!("Invalid arguments");
+            exit(1);
+            //  TODO Imporve error message 
+        }
+    };
+
+    println!("{:?}", arguments);
+
+    process(arguments);
 }

@@ -4,7 +4,6 @@
 #include "rust.rs"    //  Local rust file support
 
 
-
 //  char* error1 = "This line should be left commented out";
 /*  char* error2 = "So should this line";                    */
 #ifdef NOT_DEFINED
