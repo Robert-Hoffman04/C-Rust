@@ -1,8 +1,9 @@
-use std::{fs, process::Output};
+use std::{collections::HashMap, fs, process::Output};
 use super::helper::strExtensions;
 
 //  This stuct is responsible for keeping track of the source location for error traceback
-struct SourceLine
+#[derive(Debug)]
+pub struct SourceLine
 {
     file: String,
     line_number: usize,
@@ -16,9 +17,10 @@ pub struct PreProcessor
     pub local_imports   : Vec<String>,
     pub external_imports    : Vec<String>,
 
-    //  private
-    process_index : usize,
-    lines         : Vec<SourceLine>
+    //  private, public for debugging only
+    pub process_index : usize,
+    pub lines         : Vec<SourceLine>,
+    pub define_map    : HashMap<String, String>
 }
 
 impl PreProcessor
@@ -36,66 +38,73 @@ impl PreProcessor
         "#pragma"
     ];
 
-    fn new(original_input : String) -> PreProcessor
+    pub fn new(original_input : String) -> PreProcessor
     {
         PreProcessor {
             original_input,
-            
+
+            //  Initialize to empty/0
             local_imports     : vec![],
             external_imports  : vec![],
             process_index     : 0,
-            lines             : vec![]
+            lines             : vec![],
+            define_map        : HashMap::new()
         }
     }   
-    
+
     fn include(&mut self, mut file : String) -> ()
     {
+        println!("including file: {}", file);
         //  Take off the first and last characters and save them to make sure the file is properly closed
         let fileType = file.remove(0);
-        let fileCheck = file.pop();
 
-        if file.starts_with("<")            //  Link to external library
+        match fileType
         {
-            self.external_imports.push(file);
-        }
-        else if file.starts_with("\"")      //  Link to local file
-        {
-            self.local_imports.push(file.clone());
+            '<' => { self.external_imports.push(file); }
+            '"' => {
+                match file.rfind('"')
+                {
+                    None => { return; /* TODO EXCEPTION */ }
+                    Some(i) => { file.truncate(i); }
+                };
+                self.local_imports.push(file.clone());
 
-            //  If it is a local file there are two possiblilities
-            //      Its another C style file, in which case it can be directly included into lines
-            //      Its a local Rust file, this needs no additional processing but it does need saved for AST conversion
-            
-
-
-
-        }
-        else
-        {
-            // TODO: Exception on malformed import
+                //  If it is a local file there are two possiblilities
+                //      Its another C style file, in which case it can be directly included into lines
+                //      Its a local Rust file, this needs no additional processing but it does need saved for AST conversion
+                
+                let extension = match file.rfind(".")
+                {
+                    Some(index) => {file.clone().split_off(index)}
+                    None => { ".crs".to_string() } //   Default to C-style file if unknown
+                };
+                println!("Adding: {} {}", file, extension);
+                match extension.as_str()
+                {
+                    ".rs"  => { /* Do Nothing, handled during lexing */ }
+                    
+                    ".crs" | ".hrs" => {
+                        // Replace the "#include ..." line with the actual lines from said file, 
+                        println!("Adding: {}", file);
+                        self.lines.splice(
+                            self.process_index..self.process_index+1, 
+                            fileToVec(file)
+                        );
+                        self.process_index -= 1;
+                    }
+                    _ => {
+                        // TODO: Exception or default to one of the options
+                    }
+                }
+            }
+            _ => { /* TODO: Exception on malformed import */ }
         }
     }
 
-    fn process_file(self)
+    pub fn process_file(&mut self)
     {
-        //  Read in the actual text file
-        let input = match fs::read_to_string(self.original_input.clone())
-        {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Failed to read {}: {}", self.original_input.as_str(), e);
-                std::process::exit(1);
-            }
-        };
-
-        //  Convert the singular file string into individual lines
-        //      Use the SourceLine struct to keep track of the position in the file
         self.lines.extend(
-        input.lines().enumerate().map(|(i, line)| SourceLine {
-                file: self.original_input.clone(),
-                line_number: i + 1,
-                content: line.to_string(),
-            })
+            fileToVec(self.original_input.clone())
         );
 
         //  Iterate through all of the avalible lines
@@ -104,11 +113,20 @@ impl PreProcessor
         //      spliced to contain the new file
         while self.process_index < self.lines.len()
         {
-            let line = self.lines[self.process_index].content;
+            let mut line = self.lines[self.process_index].content.clone();
+            
+            //  Remove single line comments
+            line = match line.split_once("//")
+            {
+                None => line,
+                Some((v1, v2)) => v1.to_string()
+            };
+
             if !line.starts_with('#')
             {
                 //  If this is not a directive line, just skip over it
                 //  TODO "define" replacement logic
+                self.process_index += 1;
                 continue;
             }
             
@@ -122,19 +140,57 @@ impl PreProcessor
             
             if !PreProcessor::RESERVED.contains(&directive)
             {
-                //  TODO: error checking for invalid 
+                //  TODO: error checking for invalid instead of just continuing
+                self.process_index += 1;
                 continue;
             }
 
             match directive
             {
-                "#define"  => {}
-                "#undef"   => {}
-                "#include" => { self.include(value) }
+                "#define"  => { 
+                    let (statment, definition) = match value.split_once(' ')
+                    {
+                        None => (value, "".to_string()),
+                        Some((v1, v2)) => (v1.to_string(), v2.to_string())
+                    };
+                    self.define_map.insert(statment, definition);
+                }
+                "#undef"   => {
+                    self.define_map.remove(&value);
+                }
+                "#include" => { 
+                    self.include(value);
+                }
                 _ => {} //  TODO
             }
+            self.process_index += 1;
 
         }
         ()
     }
+}
+
+
+
+fn fileToVec(file : String) -> Vec<SourceLine>
+{
+    //  Read in the actual text file
+    let input = match fs::read_to_string(file.clone())
+    {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to read {}: {}", file.as_str(), e);
+            std::process::exit(1);
+        }
+    };
+
+    //  Convert the singular file string into individual lines
+    //      Use the SourceLine struct to keep track of the position in the file
+    Vec::from_iter(
+        input.lines().enumerate().map(|(i, line)| SourceLine {
+            file: file.clone(),
+            line_number: i + 1,
+            content: line.to_string(),
+        })
+    )
 }

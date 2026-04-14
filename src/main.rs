@@ -88,7 +88,11 @@ fn handleArgs(mut args : Vec<String>) -> Result<Arguments, Error>
 
 fn process(args : Arguments) -> ()
 {
-    
+    let mut processor = PreProcessor::new(args.input_file);
+    processor.process_file();
+
+    println!("{:?}", processor.define_map);
+
 }
 
 fn main()

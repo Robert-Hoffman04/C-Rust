@@ -85,7 +85,7 @@ typedef struct TypedefStruct
 
 // Global variable definitions
 
-Vec<int> rust_vector = Vec()        //  External type with new -> constructor conversion
+Vec<int> rust_vector = Vec()        //  External type with "new -> constructor" conversion
 Vec<auto> rust_auto_vector = Vec()  //  Auto typing test
 
 const short const_mutablility_test = 10;
