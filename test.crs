@@ -119,6 +119,8 @@ int main(int argc, char** argv)
     structTest.B += structTest.B;  //  This should cause an error
     structTest.C += structTest.B;  //  This should cause an error
 
+    printf("Testing print macro conversion %d", imported_var);
+
     // TODO:
     //      Add more test code
     //      Make the test code actually do something

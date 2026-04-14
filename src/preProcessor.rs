@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fs, ops::Index, process::Output, vec};
-use super::helper::strExtensions;
+use regex::Regex;
 
 //  This stuct is responsible for keeping track of the source location for error traceback
 #[derive(Debug)]
@@ -25,12 +25,13 @@ pub struct PreProcessor
 
 impl PreProcessor
 {
-    const RESERVED: [&'static str ; 10] = [
-        "#define",
-        "#undef",
-        "#include",
-        "#ifdef",
-        "#ifndef",
+    const RESERVED: [&'static str ; 11] = [
+        "#define",  //Done
+        "#undef",   //Done
+        "#include", //Done-ish
+        "#ifdef",   //Done
+        "#ifndef",  //Done
+        "#endif",   //Done
         "#if",
         "#elif",
         "#else",
@@ -54,12 +55,13 @@ impl PreProcessor
 
     fn include(&mut self, mut file : String) -> ()
     {
+        println!("Including: {}", file);
         //  Take off the first and last characters and save them to make sure the file is properly closed
         let fileType = file.remove(0);
 
         match fileType
         {
-            '<' => { self.external_imports.push(file); }
+            '<' => { self.external_imports.push(file); self.process_index += 1; }
             '"' => {
                 match file.rfind('"')
                 {
@@ -79,7 +81,7 @@ impl PreProcessor
                 };
                 match extension.as_str()
                 {
-                    ".rs"  => { /* Do Nothing, handled during lexing */ }
+                    ".rs"  => { self.process_index += 1; /* Do Nothing, handled during lexing */ }
                     
                     ".crs" | ".hrs" => {
                         // Replace the "#include ..." line with the actual lines from said file, 
@@ -87,7 +89,6 @@ impl PreProcessor
                             self.process_index..self.process_index+1, 
                             fileToVec(file)
                         );
-                        self.process_index -= 1;
                     }
                     _ => {
                         // TODO: Exception or default to one of the options
@@ -114,8 +115,24 @@ impl PreProcessor
 
             if !line.starts_with('#')
             {
-                //  If this is not a directive line, just skip over it
-                //  TODO "define" replacement logic
+                for key in self.define_map.keys()
+                {
+                    let pattern = format!(r"\b{}\b", regex::escape(key));
+                    let re = Regex::new(&pattern).unwrap(); //  TODO handle regex errors better. just continue?
+
+                    if re.is_match(&line)
+                    {
+                        self.lines[self.process_index].content = line.replace(
+                            key,
+                            self.define_map.get(key).expect("Impossible")   //  Should never fail due to interation
+                        );
+                        //  Continue without incrementing to check for nested defines
+                        //      Theoretically could cause problems if define is recurssive (TODO?)
+                        continue;
+                    }
+                }
+
+                //  Otherwise skip other processing
                 self.process_index += 1;
                 continue;
             }
@@ -148,12 +165,45 @@ impl PreProcessor
                 "#undef"   => {
                     self.define_map.remove(&value);
                 }
+                "#ifdef" => {
+                    if !self.define_map.contains_key(&value)
+                    {
+                        println!("Removing: {:?}", self.lines[self.process_index]);
+                        self.lines.remove(self.process_index);
+
+                        //  If not defined, skip over until #endif
+                        while self.lines[self.process_index].content != "#endif"
+                        {
+                            println!("Removing: {:?}", self.lines[self.process_index]);
+                            self.lines.remove(self.process_index);
+                        }
+                    }
+                }
+                "#ifndef" => {
+                    if self.define_map.contains_key(&value)
+                    {
+                        println!("Removing: {:?}", self.lines[self.process_index]);
+                        self.lines.remove(self.process_index);
+
+                        //  If not defined, skip over until #endif
+                        while self.lines[self.process_index].content != "#endif"
+                        {
+                            println!("Removing: {:?}", self.lines[self.process_index]);
+                            self.lines.remove(self.process_index);
+                        }
+                    }
+                }
+                "#endif" => { }
                 "#include" => { 
                     self.include(value);
+                    continue; // Removing would get rid of includes that should stay
                 }
                 _ => {} //  TODO
             }
-            self.process_index += 1;
+
+            //  If it makes it all the way here, then the statment has already been processed and can be thrown away
+            println!("Removing: {:?}", self.lines[self.process_index]);
+            self.lines.remove(self.process_index);
 
         }
         ()
