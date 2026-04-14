@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, process::Output};
+use std::{collections::HashMap, fs, ops::Index, process::Output, vec};
 use super::helper::strExtensions;
 
 //  This stuct is responsible for keeping track of the source location for error traceback
@@ -54,7 +54,6 @@ impl PreProcessor
 
     fn include(&mut self, mut file : String) -> ()
     {
-        println!("including file: {}", file);
         //  Take off the first and last characters and save them to make sure the file is properly closed
         let fileType = file.remove(0);
 
@@ -78,14 +77,12 @@ impl PreProcessor
                     Some(index) => {file.clone().split_off(index)}
                     None => { ".crs".to_string() } //   Default to C-style file if unknown
                 };
-                println!("Adding: {} {}", file, extension);
                 match extension.as_str()
                 {
                     ".rs"  => { /* Do Nothing, handled during lexing */ }
                     
                     ".crs" | ".hrs" => {
                         // Replace the "#include ..." line with the actual lines from said file, 
-                        println!("Adding: {}", file);
                         self.lines.splice(
                             self.process_index..self.process_index+1, 
                             fileToVec(file)
@@ -113,14 +110,7 @@ impl PreProcessor
         //      spliced to contain the new file
         while self.process_index < self.lines.len()
         {
-            let mut line = self.lines[self.process_index].content.clone();
-            
-            //  Remove single line comments
-            line = match line.split_once("//")
-            {
-                None => line,
-                Some((v1, v2)) => v1.to_string()
-            };
+            let line = self.lines[self.process_index].content.clone();
 
             if !line.starts_with('#')
             {
@@ -186,11 +176,82 @@ fn fileToVec(file : String) -> Vec<SourceLine>
 
     //  Convert the singular file string into individual lines
     //      Use the SourceLine struct to keep track of the position in the file
-    Vec::from_iter(
-        input.lines().enumerate().map(|(i, line)| SourceLine {
-            file: file.clone(),
-            line_number: i + 1,
-            content: line.to_string(),
-        })
-    )
+    let file_lines = input.lines();
+
+    let mut in_multi_line_comment = false;
+    let mut output : Vec<SourceLine> = vec![];
+
+    // Comment removal must be done before any processing so it is done immediatly on import
+    for (i, line) in file_lines.enumerate()
+    {
+        //  Remove single line comments
+        let mut line = match line.split_once("//")
+        {
+            None => line.to_string(),
+            Some((v1, v2)) => v1.to_string()
+        };
+
+        //  Handle multi line comment start
+        if line.contains("/*")
+        {
+            let start = line.find("/*").expect("Impossible"); //  guarenteed due to the if statments so expect is fine
+
+            //  If the multi line comment starts and ends in the same line, it can bee handled here
+            if line.contains("*/")
+            {
+                //  Replace all of the characters in the comment with ' ' to keep position based errors accurate
+                let end = line.find("*/").expect("Impossible");
+                let range = start..end+2;
+                let spaces = " ".repeat(range.len());
+                line.replace_range(range, &spaces);
+            }
+            else
+            {
+                //  Otherwise its a true multiline comment so just set the flag to true
+                in_multi_line_comment = true;
+                let end = line.len();
+                let range = start..end;
+                let spaces = " ".repeat(range.len());
+                line.replace_range(range, &spaces);
+            }
+        }
+
+        //  Handle multiline comment end
+        if in_multi_line_comment
+        {
+            if !line.contains("*/")
+            {
+                //  If we are already in a multi line comment, and the current line does not end it,
+                //      That means the line is useless in terms of executable code.
+                continue;
+            }
+            else
+            {
+                //  And because of the last check we know this line must end the comment if it gets to here
+                let end = line.find("*/").expect("Impossible");
+                let range = 0..end+2;
+                let spaces = " ".repeat(range.len());
+                line.replace_range(range, &spaces);
+
+                in_multi_line_comment = false;
+            }
+        }
+
+        //  If the line is entirely empty, no need to keep it
+        if line.trim().is_empty()
+        {
+            continue;
+        }
+
+        output.push(
+            SourceLine
+            {
+                file: file.clone(),
+                line_number: i + 1,
+                content: line.to_string(),
+            }
+        );
+    };
+
+    output
 }
