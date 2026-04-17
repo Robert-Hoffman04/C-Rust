@@ -98,7 +98,10 @@ fn process(args : Arguments) -> ()
     );
     tokenizer.tokenize();
 
-    println!("{:?}", tokenizer.tokens)
+    for token in tokenizer.tokens
+    {
+        println!("{:?}", token)
+    }
 }
 
 fn main()
@@ -106,7 +109,7 @@ fn main()
     let options = handleArgs(
         //env::args().collect()
         //  Hard to use actual arguments through vscode run
-        vec!["C-Rust".to_string(), "test.crs".to_string(), "-o".to_string(), "output.rs".to_string()]
+        vec!["C-Rust".to_string(), "small.crs".to_string(), "-o".to_string(), "output.rs".to_string()]
     );
 
     let arguments = match options 

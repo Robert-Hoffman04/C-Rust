@@ -1,3 +1,4 @@
+use core::panic;
 use std::vec;
 
 use super::preProcessor::SourceLine;
@@ -21,6 +22,36 @@ enum TokenType
     CloseAngle,
     CloseSquare,
     Semicolon,
+    Plus,
+    Minus,
+    Slash,
+    Percent,
+    Equals,
+    PlusPlus,
+    MinusMinus,
+    PlusEquals,
+    MinusEquals,
+    AsteriskEquals,
+    SlashEquals,
+    PercentEquals,
+    EqualsEquals,
+    NotEquals,
+    LessEquals,
+    GreaterEquals,
+    Ampersand,
+    AmpersandEquals,
+    AmpersandAmpersand,
+    Pipe,
+    PipeEquals,
+    PipePipe,
+    Caret,
+    CaretEquals,
+    Tilde,
+    Exclamation,
+    ShiftLeft,
+    ShiftRight,
+    CharLiteral,
+    StringLiteral,
 }
 
 const keywords : [&str ; 34] = [
@@ -128,17 +159,109 @@ impl Tokenizer
             match current_char
             {
                 //  Single character tokens
-                '*' => self.pushSingle(TokenType::Asterisk),
+                '~' => self.pushSingle(TokenType::Tilde),
                 ',' => self.pushSingle(TokenType::Comma),
                 '(' => self.pushSingle(TokenType::OpenRound),
                 ')' => self.pushSingle(TokenType::CloseRound),
                 '{' => self.pushSingle(TokenType::OpenCurly),
                 '}' => self.pushSingle(TokenType::CloseCurly),
-                '<' => self.pushSingle(TokenType::OpenAngle),
-                '>' => self.pushSingle(TokenType::CloseAngle),
                 '[' => self.pushSingle(TokenType::OpenSquare),
                 ']' => self.pushSingle(TokenType::CloseSquare),
                 ';' => self.pushSingle(TokenType::Semicolon),
+
+                //  Double character tokens
+                '+' => {
+                    match self.peakNextChar()
+                    {
+                        '+' => { self.pushDouble(TokenType::PlusPlus);   self.char_index += 1; }
+                        '=' => { self.pushDouble(TokenType::PlusEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Plus),
+                    }
+                }
+                '-' => {
+                    match self.peakNextChar()
+                    {
+                        '-' => { self.pushDouble(TokenType::MinusMinus);   self.char_index += 1; }
+                        '=' => { self.pushDouble(TokenType::MinusEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Minus),
+                    }
+                }
+                '*' => {
+                    match self.peakNextChar()
+                    {
+                        '=' => { self.pushDouble(TokenType::AsteriskEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Asterisk),
+                    }
+                }
+                '/' => {
+                    match self.peakNextChar()
+                    {
+                        '=' => { self.pushDouble(TokenType::SlashEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Slash),
+                    }
+                }
+                '%' => {
+                    match self.peakNextChar()
+                    {
+                        '=' => { self.pushDouble(TokenType::PercentEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Percent),
+                    }
+                }
+                '=' => {
+                    match self.peakNextChar()
+                    {
+                        '=' => { self.pushDouble(TokenType::EqualsEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Equals),
+                    }
+                }
+                '!' => {
+                    match self.peakNextChar()
+                    {
+                        '=' => { self.pushDouble(TokenType::NotEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Exclamation),
+                    }
+                }
+                '<' => {
+                    match self.peakNextChar()
+                    {
+                        '<' => { self.pushDouble(TokenType::ShiftLeft);  self.char_index += 1; }
+                        '=' => { self.pushDouble(TokenType::LessEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::OpenAngle),
+                    }
+                }
+                '>' => {
+                    match self.peakNextChar()
+                    {
+                        '>' => { self.pushDouble(TokenType::ShiftRight);    self.char_index += 1; }
+                        '=' => { self.pushDouble(TokenType::GreaterEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::CloseAngle),
+                    }
+                }
+                '&' => {
+                    match self.peakNextChar()
+                    {
+                        '&' => { self.pushDouble(TokenType::AmpersandAmpersand); self.char_index += 1; }
+                        '=' => { self.pushDouble(TokenType::AmpersandEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Ampersand),
+                    }
+                }
+                '|' => {
+                    match self.peakNextChar()
+                    {
+                        '|' => { self.pushDouble(TokenType::PipePipe); self.char_index += 1; }
+                        '=' => { self.pushDouble(TokenType::PipeEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Pipe),
+                    }
+                }
+                '^' => {
+                    match self.peakNextChar()
+                    {
+                        '=' => { self.pushDouble(TokenType::CaretEquals); self.char_index += 1; }
+                        _ => self.pushSingle(TokenType::Caret),
+                    }
+                }
+            
+
 
                 //  Multicharacter tokens
                 'a'..='z' | 'A'..='Z' | '_' => {
@@ -149,7 +272,7 @@ impl Tokenizer
                     }
                     char_stack.push(current_char);
                 }
-                '1'..='9' => {
+                '0'..='9' => {
                     if char_stack.is_empty()
                     {
                         stack_line_start = self.line_index;
@@ -168,6 +291,41 @@ impl Tokenizer
                         self.pushSingle(TokenType::Period);    
                     }
                 },
+
+                '\'' => {
+                    let start_line = self.line_index;
+                    let start_char = self.char_index;
+
+                    self.char_index += 1;
+                    let value = self.readCharLiteral().to_string();
+
+                    self.tokens.push(
+                        Token {
+                            token_type: TokenType::CharLiteral,
+                            value,
+                            start_line,
+                            start_char,
+                            end_line: self.line_index,
+                            end_char: self.char_index
+                        }
+                    );
+                }
+
+                '\"' => {
+                    let start_line = self.line_index;
+                    let start_char = self.char_index;
+                    let value = self.readStringLiteral();
+                    self.tokens.push(
+                        Token {
+                            token_type: TokenType::StringLiteral,
+                            value,
+                            start_line,
+                            start_char,
+                            end_line: self.line_index,
+                            end_char: self.char_index
+                        }
+                    );
+                }
 
                 
                 _ => { /* Nothing for now, maybe error? */}
@@ -190,6 +348,21 @@ impl Tokenizer
                 start_char: self.char_index,
                 end_line: self.line_index,
                 end_char: self.char_index
+            }
+        );
+    }
+
+    fn pushDouble(&mut self, token_type : TokenType)
+    {
+        self.tokens.push(
+            Token
+            {
+                token_type,
+                value: String::new(),
+                start_line: self.line_index,
+                start_char: self.char_index,
+                end_line: self.line_index,
+                end_char: self.char_index+1
             }
         );
     }
@@ -223,6 +396,50 @@ impl Tokenizer
         })
     }
 
+    fn readStringLiteral(&mut self) -> String
+    {
+        let mut result = String::new();
+
+        while !result.ends_with('"') || result.ends_with("\\\"")
+        {
+            self.char_index += 1;
+            result.push(
+                self.readCharLiteral()
+            );
+        }
+
+        result.pop();   //  Remove final '"' before returning
+        result
+    }
+
+    //  Reads the next char literal out of the toke stream
+    //      For example: char c = '\n'
+    fn readCharLiteral(&mut self) -> char
+    {        
+        let c = self.getCurrentChar();
+
+        match self.getCurrentChar()
+        {
+            '\\' => {
+                match self.peakNextChar()
+                {
+                    '"' => {self.char_index += 1; '\"'}
+                    'n' => {self.char_index += 1; '\n'}
+                    't' => {self.char_index += 1; '\t'}
+                    'r' => {self.char_index += 1; '\r'}
+                    '0' => {self.char_index += 1; '\0'}
+                    '\\' => {self.char_index += 1; '\\'}
+                    '\'' => {self.char_index += 1; '\''}
+                    
+                    //  Otherwise it was a false positive, so relay the original character
+                    _ => c
+                }
+            }
+            _ => c
+        }
+
+    }
+
     fn getCurrentChar(&mut self) -> char
     {
         //  if all lines have been worked through, just return EOF
@@ -230,7 +447,7 @@ impl Tokenizer
         {
             return '\0'
         }
-        let line = self.lines[self.line_index].content.clone();
+        let line = &self.lines[self.line_index].content;
 
         //  Get the proper character from the line
         //      if the line has been overflowed, move to the next one
@@ -243,8 +460,25 @@ impl Tokenizer
                 self.getCurrentChar()
             }
         }
-
-        //  Because of how this function is set up, the program only needs to increment or decrement
+        //  Because of how this function is set up, the program only needs to increment
         //  the char_index, line index manipulation is handled completly automatically
+    }
+
+    fn peakNextChar(&mut self) -> char
+    {
+        let next_char_index = self.char_index + 1;
+
+        if self.line_index >= self.lines.len()
+        {
+            return '\0';
+        }
+
+        let line = &self.lines[self.line_index].content;
+
+        match line.chars().nth(next_char_index)
+        {
+            Some(v) => v,
+            None => '\0'    //  Dont peak across lines
+        }
     }
 }
