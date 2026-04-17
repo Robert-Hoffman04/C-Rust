@@ -5,9 +5,9 @@ use regex::Regex;
 #[derive(Debug)]
 pub struct SourceLine
 {
-    file: String,
-    line_number: usize,
-    content: String,
+    pub file: String,
+    pub line_number: usize,
+    pub content: String,
 }
 
 pub struct PreProcessor

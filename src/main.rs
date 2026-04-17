@@ -1,10 +1,10 @@
 use std::{default, env, fmt::Error, process::exit};
 
-mod helper;
-use helper::strExtensions;
-
 mod preProcessor;
 use preProcessor::PreProcessor;
+
+mod tokenizer;
+use tokenizer::Tokenizer;
 
 /*
  *  current valid args are "-o <output_filename>"" and just "<input_filename>""
@@ -91,8 +91,14 @@ fn process(args : Arguments) -> ()
     let mut processor = PreProcessor::new(args.input_file);
     processor.process_file();
 
-    println!("{:?}", processor.lines);
+    println!("{:?}\n\n\n", processor.lines);
 
+    let mut tokenizer = Tokenizer::new(
+        processor.lines
+    );
+    tokenizer.tokenize();
+
+    println!("{:?}", tokenizer.tokens)
 }
 
 fn main()
@@ -102,9 +108,6 @@ fn main()
         //  Hard to use actual arguments through vscode run
         vec!["C-Rust".to_string(), "test.crs".to_string(), "-o".to_string(), "output.rs".to_string()]
     );
-
-    let mut test = "";
-    test.remove_first_and_last();
 
     let arguments = match options 
     {
