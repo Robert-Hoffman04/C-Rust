@@ -50,8 +50,10 @@ enum TokenType
     Exclamation,
     ShiftLeft,
     ShiftRight,
+    Arrow,
     CharLiteral,
     StringLiteral,
+    Include
 }
 
 const keywords : [&str ; 34] = [
@@ -88,7 +90,7 @@ const keywords : [&str ; 34] = [
     "unsigned",
     "void",
     "volatile",
-    "while",
+    "while"
 ];
 
 #[derive(Debug)]
@@ -137,6 +139,29 @@ impl Tokenizer
         let mut current_char = self.getCurrentChar();
         while current_char != '\0'
         {
+            //  Since there are some left over include statments we need to handle them
+            //      I've choosen to make it its own token for the AST converters to handle once it gets there
+            if self.char_index == 0
+            {
+                let line = &self.lines[self.line_index].content;
+                if line.trim().starts_with("#include")
+                {
+                    self.tokens.push(Token{
+                        token_type: TokenType::Include,
+                        value : line.clone().replace("#include ", ""),
+                        start_line : self.line_index,
+                        start_char : 0,
+                        end_line : self.line_index,
+                        end_char : line.len() - 1,
+                    });
+
+                    //  Jump to next line
+                    self.line_index += 1;
+                    current_char = self.getCurrentChar();
+                    continue;
+                }
+            }
+
             //  is the current character part of a valid word or number?
             //      It can only contain a period if it is a number
             let is_word = current_char.is_ascii_alphanumeric() ||
@@ -181,7 +206,8 @@ impl Tokenizer
                 '-' => {
                     match self.peakNextChar()
                     {
-                        '-' => { self.pushDouble(TokenType::MinusMinus);   self.char_index += 1; }
+                        '>' => { self.pushDouble(TokenType::Arrow);       self.char_index += 1; }
+                        '-' => { self.pushDouble(TokenType::MinusMinus);  self.char_index += 1; }
                         '=' => { self.pushDouble(TokenType::MinusEquals); self.char_index += 1; }
                         _ => self.pushSingle(TokenType::Minus),
                     }
@@ -261,8 +287,6 @@ impl Tokenizer
                     }
                 }
             
-
-
                 //  Multicharacter tokens
                 'a'..='z' | 'A'..='Z' | '_' => {
                     if char_stack.is_empty()
@@ -412,7 +436,7 @@ impl Tokenizer
         result
     }
 
-    //  Reads the next char literal out of the toke stream
+    //  Reads the next char literal out of the token stream
     //      For example: char c = '\n'
     fn readCharLiteral(&mut self) -> char
     {        

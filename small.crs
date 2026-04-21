@@ -1,3 +1,5 @@
+#include <std::fmt>
+
 int main()
 {
     float j = 0.0;
