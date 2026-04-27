@@ -4,7 +4,7 @@ use std::vec;
 use super::preProcessor::SourceLine;
 
 #[derive(Debug)]
-enum TokenType
+pub enum TokenType
 {
     Keyword,
     Identifer,
@@ -96,13 +96,13 @@ const keywords : [&str ; 34] = [
 #[derive(Debug)]
 pub struct Token
 {
-    token_type : TokenType,
-    value      : String,
+    pub token_type : TokenType,
+    pub value      : String,
 
-    start_line : usize,
-    start_char : usize,
-    end_line   : usize,
-    end_char   : usize,
+    pub start_line : usize,
+    pub start_char : usize,
+    pub end_line   : usize,
+    pub end_char   : usize,
 }
 
 pub struct Tokenizer

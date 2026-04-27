@@ -6,6 +6,9 @@ use preProcessor::PreProcessor;
 mod tokenizer;
 use tokenizer::Tokenizer;
 
+mod parser;
+use parser::Parser;
+
 /*
  *  current valid args are "-o <output_filename>"" and just "<input_filename>""
  */
@@ -98,10 +101,15 @@ fn process(args : Arguments) -> ()
     );
     tokenizer.tokenize();
 
-    for token in tokenizer.tokens
+    for token in &tokenizer.tokens
     {
         println!("{:?}", token)
     }
+
+    let mut parser = Parser::new(
+        tokenizer.tokens
+    );
+    parser.parse();
 }
 
 fn main()
