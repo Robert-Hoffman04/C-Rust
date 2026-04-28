@@ -3,7 +3,7 @@ use std::vec;
 
 use super::preProcessor::SourceLine;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TokenType
 {
     Keyword,
