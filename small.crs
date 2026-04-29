@@ -4,9 +4,17 @@ int main()
 {
     float j = 0.0;
     char t = '\n';
-    for (int i = 0; i < 10; i++)
-    {
-        j += i;
+    printf("Float value is now: %j%c", j, t);
+    for (j; j < 10; j++)
         printf("Float value is now: %d%c", j, t);
+
+    if (j > 7)
+        printf("this if has no brackets\n");
+    else if (j > 8)
+        printf("No bracket Else if\n");
+    else
+    {
+        printf("This was printed across");
+        printf("two lines in an else block\n");
     }
 }

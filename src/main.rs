@@ -101,15 +101,18 @@ fn process(args : Arguments) -> ()
     );
     tokenizer.tokenize();
 
-    for token in &tokenizer.tokens
+    for (i, token) in (&tokenizer.tokens).iter().enumerate()
     {
-        println!("{:?}", token)
+        println!("{:?}: {:?}", i, token)
     }
 
     let mut parser = Parser::new(
         tokenizer.tokens
     );
-    parser.parse();
+    let mut AST = parser.parse();
+
+    println!("\n\n\nParseTree\n{}", AST.Node);
+    
 }
 
 fn main()
@@ -133,4 +136,68 @@ fn main()
     println!("{:?}", arguments);
 
     process(arguments);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preProcessor::SourceLine;
+    use super::tokenizer::{Tokenizer, TokenType};
+    use super::parser::{Parser, ASTNode};
+
+    //  One big test to fo through each step and confirm its working
+    //      Basically just tokenized and parsed a small function by hand
+    //      then make sure output matches
+    #[test]
+    fn parses_requested_inline_program() {
+        let lines = vec![
+            SourceLine { file: "inline_test.crs".to_string(), line_number: 1, content: "int A = 1;".to_string() },
+            SourceLine { file: "inline_test.crs".to_string(), line_number: 2, content: "int main(int argc, char** argv) { printf(\"Say Hi!\\n\"); if (true) return 1; else return 0;}".to_string() },
+        ];
+
+        let mut tokenizer = Tokenizer::new(lines);
+        tokenizer.tokenize();
+
+        assert!(tokenizer.tokens.len() > 0, "Tokenizer produced no tokens");
+        assert!(tokenizer.tokens.iter().any(|t| t.token_type == TokenType::Keyword && t.value == "if"), "Missing if keyword token");
+        assert!(tokenizer.tokens.iter().any(|t| t.token_type == TokenType::Identifier && t.value == "printf"), "Missing printf identifier token");
+        assert!(tokenizer.tokens.iter().any(|t| t.token_type == TokenType::StringLiteral && t.value.contains("Say Hi!")), "Missing expected string literal token");
+
+        let mut parser = Parser::new(tokenizer.tokens);
+        let ast = parser.parse();
+
+        let root = match ast.Node {
+            ASTNode::Root(nodes) => nodes,
+            _ => panic!("Expected root AST node"),
+        };
+
+        assert!(root.len() == 2, "Expected top-level declaration and function");
+
+        match &root[0] {
+            ASTNode::Declaration { var_type, name, .. } => {
+                assert!(var_type == "int", "Expected first declaration type to be int");
+                assert!(name == "A", "Expected first declaration name to be A");
+            }
+            _ => panic!("Expected first root node to be declaration"),
+        }
+
+        match &root[1] {
+            ASTNode::Function { body, .. } => {
+                assert!(body.len() == 2, "Expected function body to have printf and if");
+                match &body[1].Node {
+                    ASTNode::If { then_branch, else_branch, .. } => {
+                        match &then_branch.Node {
+                            ASTNode::Return(Some(_)) => {}
+                            _ => panic!("Expected then branch to be return 1"),
+                        }
+                        match &else_branch.Node {
+                            ASTNode::Return(Some(_)) => {}
+                            _ => panic!("Expected else branch to be return 0"),
+                        }
+                    }
+                    _ => panic!("Expected second statement to be if"),
+                }
+            }
+            _ => panic!("Expected second root node to be function"),
+        }
+    }
 }
