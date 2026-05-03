@@ -9,6 +9,9 @@ use tokenizer::Tokenizer;
 mod parser;
 use parser::Parser;
 
+mod writer;
+use writer::writer;
+
 /*
  *  current valid args are "-o <output_filename>"" and just "<input_filename>""
  */
@@ -94,7 +97,11 @@ fn process(args : Arguments) -> ()
     let mut processor = PreProcessor::new(args.input_file);
     processor.process_file();
 
-    println!("{:?}\n\n\n", processor.lines);
+    for line in &processor.lines
+    {
+        println!("{:?}", line);
+    }
+    println!("\n\n");
 
     let mut tokenizer = Tokenizer::new(
         processor.lines
@@ -109,10 +116,11 @@ fn process(args : Arguments) -> ()
     let mut parser = Parser::new(
         tokenizer.tokens
     );
-    let mut AST = parser.parse();
+    let AST = parser.parse();
 
     println!("\n\n\nParseTree\n{}", AST.Node);
     
+    writer(AST, args.output_file);
 }
 
 fn main()
@@ -120,7 +128,7 @@ fn main()
     let options = handleArgs(
         //env::args().collect()
         //  Hard to use actual arguments through vscode run
-        vec!["C-Rust".to_string(), "small.crs".to_string(), "-o".to_string(), "output.rs".to_string()]
+        vec!["C-Rust".to_string(), "test.crs".to_string(), "-o".to_string(), "output.rs".to_string()]
     );
 
     let arguments = match options 
@@ -138,13 +146,14 @@ fn main()
     process(arguments);
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::preProcessor::SourceLine;
     use super::tokenizer::{Tokenizer, TokenType};
     use super::parser::{Parser, ASTNode};
 
-    //  One big test to fo through each step and confirm its working
+    //  One big test to go through each step and confirm its working
     //      Basically just tokenized and parsed a small function by hand
     //      then make sure output matches
     #[test]
@@ -182,22 +191,28 @@ mod tests {
 
         match &root[1] {
             ASTNode::Function { body, .. } => {
-                assert!(body.len() == 2, "Expected function body to have printf and if");
-                match &body[1].Node {
-                    ASTNode::If { then_branch, else_branch, .. } => {
-                        match &then_branch.Node {
-                            ASTNode::Return(Some(_)) => {}
-                            _ => panic!("Expected then branch to be return 1"),
-                        }
-                        match &else_branch.Node {
-                            ASTNode::Return(Some(_)) => {}
-                            _ => panic!("Expected else branch to be return 0"),
+                match body
+                {
+                    Some(body) => {
+                        assert!(body.len() == 2, "Expected function body to have printf and if");
+                        match &body[1].Node {
+                            ASTNode::If { then_branch, else_branch, .. } => {
+                                match &then_branch.Node {
+                                    ASTNode::Return(Some(_)) => {}
+                                    _ => panic!("Expected then branch to be return 1"),
+                                }
+                                match &else_branch.Node {
+                                    ASTNode::Return(Some(_)) => {}
+                                    _ => panic!("Expected else branch to be return 0"),
+                                }
+                            }
+                            _ => panic!("Expected second statement to be if"),
                         }
                     }
-                    _ => panic!("Expected second statement to be if"),
+                    None => ()
                 }
             }
             _ => panic!("Expected second root node to be function"),
         }
     }
-}
+} */

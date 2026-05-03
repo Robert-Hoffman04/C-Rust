@@ -54,6 +54,8 @@ pub enum TokenType {
     CharLiteral,
     StringLiteral,
     Include,
+    Colon,
+    ColonColon
 }
 
 //  so i can use to_string method to get the name
@@ -63,9 +65,9 @@ impl fmt::Display for TokenType {
     }
 }
 
-const keywords: [&str; 34] = [
+const keywords: [&str; 35] = [
     "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else",
-    "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long", "register",
+    "enum", "extern", "float", "for", "goto", "if", "impliments", "inline", "int", "long", "register",
     "restrict", "return", "short", "signed", "sizeof", "static", "struct", "switch", "typedef",
     "union", "unsigned", "void", "volatile", "while",
 ];
@@ -275,6 +277,13 @@ impl Tokenizer {
                     }
                     _ => self.pushSingle(TokenType::Caret),
                 },
+                ':' => match self.peakNextChar() {
+                    ':' => {
+                        self.pushDouble(TokenType::ColonColon);
+                        self.char_index += 1;
+                    }
+                    _ => self.pushSingle(TokenType::Colon),
+                },
 
                 //  Multicharacter tokens
                 'a'..='z' | 'A'..='Z' | '_' => {
@@ -300,6 +309,8 @@ impl Tokenizer {
                     }
                 }
 
+                //  Char and String literals
+                //      Token gets the full string contents
                 '\'' => {
                     let start_line = self.line_index;
                     let start_char = self.char_index;

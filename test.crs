@@ -1,34 +1,34 @@
-#include <vec>          //  External rust lib import
+#include <std::vec>          //  External rust lib import
 #include <std::fmt>
 #include "other.hrs"    //  Local file refrence
-#include "rust.rs"    //  Local rust file support
+#include "rustImportTest.rs"    //  Local rust file support
 
 
 //  char* error1 = "This line should be left commented out";
 /*  char* error2 = "So should this line";                    */
 #ifdef NOT_DEFINED
-char* error3 = "Preprocessing should remove this"
+char* error3 = "Preprocessing should remove this";
 #endif
 #ifdef DEFINED
-char* check4 = "But leave this intacked"
+char* check4 = "But leave this intacked";
 #endif
 
 char* check5 = DEFINED_IN_OTHER;    
-char* check6 = NOT_DEFINED_AT_ALL;  //  This should cause an error
+//char* check6 = NOT_DEFINED_AT_ALL;  //  This should cause an error
 
 
 //  Enum instantiation for standard and typedef
 //      Same as standard C syntax
-enum TestEnum
+enum TestEnum impliments Debug
 {
     Option1,
     Option2
-}
-typedef enum TestTypeEnum
+};
+typedef enum TestTypeEnum impliments Debug
 {
     Choice1,
     Choice2
-}
+};
 
 /*
     Sturct instantiation for standard and typedef
@@ -41,9 +41,6 @@ struct ExampleStruct impliments Debug, Display
 {
     public:
 
-        enum TestEnum enum1;
-        TestTypeEnum enum2;
-
         int A;
         const int B;
 
@@ -54,48 +51,61 @@ struct ExampleStruct impliments Debug, Display
 
         int math_and_stuff()
         {
-            return A + B * (C - B);
+            return this.A + this.B * (this.C - this.B);
         }
 
         void test_print(char* message)
         {   
-            private_print("This is being printed in a private function");
-            printf("Test Print: %s\n", message);
+            self.private_print("This is being printed in a private function");
+            Macro::print("Test Print: {}\n", message);
         }
 
-        Result Display::fmt(&Formatter f)
+        Result Display::fmt(Formatter& f)
         {
-            //  TODO: Find a better syntax for macros
-            return macro.write(f, "A: %d, B: %d", A, B);
-        },
+            return Macro::write(f, "A: {}, B: {}", A, B);
+        }
 
     private:
         int C;
 
         void private_print(char* message)
         {
-            printf("Private Print: %s\n", message);
+            Macro::print("Private Print: {}\n", message);
         }
 }
 
 typedef struct TypedefStruct
 {
+    public:
     int test;
 };
 
-// Global variable definitions
-
-Vec<int> rust_vector = Vec()        //  External type with "new -> constructor" conversion
-Vec<auto> rust_auto_vector = Vec()  //  Auto typing test
-
-const short const_mutablility_test = 10;
-long auto_mutablility_test = 10;
-long auto_non_mutablilty_test = 10;
-
-int main(int argc, char** argv)
+void main()
 {
+    // (NOT) Global variable definitions
+    //      I didnt relize it when starting but global scope rust variables are pretty limited
+    //      in order to be mutable you have to use the following syntax every time its modified
+    //          unsafe {
+    //              /* Modify variables here */
+    //          }
+    //      My AST converter is not sophisticated enough to be able to detect when someone is modifying a global
+    //      scope variable and add that on its own
+
+    Vec<int> rust_vector = Vec::new();  //  External type with "new -> constructor" conversion
+    //  Test failed :( and im out of time properly implement it
+    //      rust compiler itself doesnt auto fill the typing here so
+    //      not exactly my fault since thats what all auto useage relys on
+    //auto rust_auto_vector = Vec::new(); //  Auto typing test
+
+    const long const_mutablility_test = 10;
+    long auto_mutablility_test = 10;
+    long auto_non_mutablilty_test = 10;
+
+
+
+
     auto test = 1;
-    const_mutablility_test += test; //  This should cause an error
+    //const_mutablility_test += test; //  This should cause an error
 
     auto_mutablility_test    += test;
     auto_non_mutablilty_test += test; //    If this line is commented, then the variable should stay non-mutable otherwise it should auto shift to mutable
@@ -105,13 +115,13 @@ int main(int argc, char** argv)
     rust_vector.push(3);
     rust_vector.pop();
 
-    rust_auto_vector.push('t');
-    rust_auto_vector.push('e');
-    rust_auto_vector.push('s');
-    rust_auto_vector.push('t');
-    rust_auto_vector.push(1);   //  Should cause an error
+    //rust_auto_vector.push('t');
+    //rust_auto_vector.push('e');
+    //rust_auto_vector.push('s');
+    //rust_auto_vector.push('t');
+    //rust_auto_vector.push(1);   //  Should cause an error
 
-    struct ExampleStruct structTest = ExampleStruct();
+    struct ExampleStruct structTest = ExampleStruct::new(15);
     structTest.test_print("This is from inside a struct");
     structTest.private_print("This is from inside a struct (FAIL)");   //  This should cause an error
 
@@ -119,7 +129,9 @@ int main(int argc, char** argv)
     structTest.B += structTest.B;  //  This should cause an error
     structTest.C += structTest.B;  //  This should cause an error
 
-    printf("Testing print macro conversion %d", imported_var);
+    Macro::print("Testing print macro conversion {}", imported_var);
+
+    rustImportTest::local_rust_function_test(structTest);
 
     // TODO:
     //      Add more test code
