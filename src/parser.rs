@@ -138,6 +138,7 @@ pub enum CType {
     Const(Box<CType>),
     Template(String, Vec<CType>),
 }
+/// Recursivly decend the type list to make sure its printed properly
 impl fmt::Display for CType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -237,7 +238,7 @@ impl ASTNode {
         Ok(())
     }
 
-    //  helper to show the display name of this node variant
+    ///  Map a node type to a a human readable string
     fn node_name(&self) -> &'static str {
         match self {
             ASTNode::Root(_) => "Root",
@@ -260,8 +261,8 @@ impl ASTNode {
         }
     }
 
-    //  helper to extract all the relevant data from a node
-    //      for example the name of a function being called
+    ///  helper to extract all the relevant data from a node
+    ///      for example the name of a function being called
     fn attrs(&self, attrnames: bool) -> Vec<String> {
         let fmt = |name: &str, val: &str| -> String {
             if attrnames {
@@ -270,7 +271,8 @@ impl ASTNode {
                 val.to_string()
             }
         };
-
+        
+        //  Get diffrent data depending on the tpye of the node
         match self {
             ASTNode::Include(path) => vec![fmt("path", path)],
             ASTNode::Literal(lit) => match lit {
@@ -331,9 +333,10 @@ impl ASTNode {
         }
     }
 
-    //  Returns all child ASTNodes with their relationship label
-    //      for example the seperate then and else blocks of a if statment
+    ///  Returns all child ASTNodes with their relationship label
+    ///      for example the seperate then and else blocks of a if statment
     fn children(&self) -> Vec<(&'static str, &ASTNode)> {
+        //  diffrent nodes have diffrent kind of children
         match self {
             ASTNode::Root(nodes) => nodes.iter().map(|n| ("item", n)).collect(),
 
@@ -403,6 +406,7 @@ impl ASTNode {
     }
 }
 
+//  just maping the display function to the tree printer
 impl fmt::Display for ASTNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut buf = Vec::new();
@@ -416,24 +420,24 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
 
-    includes: Vec<String>,
-    external: Vec<String>,
     struct_names: Vec<String>,
 }
 
 impl Parser {
+    /// Construtor for the parse class
     pub fn new(tokens: Vec<Token>) -> Self {
         Parser {
             tokens,
             pos: 0,
-            includes: vec![],
-            external: vec![],
             struct_names: vec![]
         }
     }
 
+    ///`Actual parse function called by main
     pub fn parse(&mut self) -> AST {
 
+        //  Scan the incoming token list for any structure definitions ahead of time
+        //      this lets me later change their constructors into the proper "::new()" function
         let mut willBeStruct = false;
         for token in &self.tokens
         {
@@ -452,10 +456,13 @@ impl Parser {
 
         let mut nodes = Vec::new();
 
+        //  Iterate though all of the tokens that were passed, running diffrent functions based on type
         while self.pos < self.tokens.len() {
             match self.peekType() {
                 TokenType::Include => nodes.push(self.parseInclude()),
                 TokenType::Keyword => match self.peek().value.as_str() {
+                    //  the typedef diffrence ended up being kind of pointless in the end
+                    //      but kept because im not rewriting a bunch of code
                     "typedef" => {
                         let def = self.parseTypedef();
                         match def {
@@ -470,18 +477,18 @@ impl Parser {
                         }
                     }
                     "struct" => {
-                        if let Some(node) = self.parseStruct() {
-                            nodes.push(node);
-                        }
+                        nodes.push(self.parseStruct());
                     }
-
+                    //  Anything that wasnt part of the existing types there is must be a type name for a delecration or function
                     _ => nodes.push(self.parseDeclarationOrFunction(true)),
                 },
+                //  Since you might have imported rust types identifers could also be a valid type
                 TokenType::Identifier => nodes.push(self.parseDeclarationOrFunction(true)),
                 _ => self.advance(),
             }
         }
 
+        //  Create the final root node to be returned
         AST {
             Node: ASTNode::Root(nodes.into_iter().map(|n| n.Node).collect()),
             Span: Span {
@@ -491,6 +498,7 @@ impl Parser {
         }
     }
 
+    /// Converted include tokens to a single include node in the tree for the writer to finally use
     fn parseInclude(&mut self) -> AST {
         let inc = AST {
             Node: ASTNode::Include(self.peek().value.clone()),
@@ -503,6 +511,7 @@ impl Parser {
         inc
     }
 
+    /// Decideds if an enum or struct comes next, and also where the name for it is
     fn parseTypedef(&mut self) -> Option<AST> {
         self.advance();
 
@@ -521,7 +530,7 @@ impl Parser {
                 Some(node)
             }
             "struct" => {
-                let mut node = self.parseStruct()?;
+                let mut node = self.parseStruct();
 
                 if *self.peekType() != TokenType::Semicolon {
                     let alias = self.consumeValue();
@@ -537,16 +546,20 @@ impl Parser {
         }
     }
 
+    /// parse enums into the enum node
     fn parseEnum(&mut self) -> Option<AST> {
         let start = self.pos;
         self.advance(); //  alwasy just "enum"
 
+        //  If the enum is anonymus, create a fake name for it to use in rust
         let name = if matches!(self.peekType(), TokenType::Identifier) {
             self.consumeValue()
         } else {
             format!("enum_{}", Uuid::new_v4().to_string().replace("-", "_"))
         };
 
+        //  Look for any implements that it defines
+        //      should really only be debug or clone
         let mut implements = vec![];
         if matches!(self.peekType(), TokenType::Keyword) && self.peek().value == "impliments" {
             self.advance();
@@ -572,15 +585,15 @@ impl Parser {
 
         //  C techincally supports declaration of enums without actually defining them
         //      The later definition is the exact same format as a proper initilization
-        //      so we can just through this kind of def away
+        //      so we can just throw this kind of def away
         if matches!(self.peekType(), TokenType::Semicolon) {
             return None;
         }
 
         self.expect(TokenType::OpenCurly);
 
+        //  Look through all of the enum options and save them for the writer
         let mut options = vec![];
-
         loop {
             if !matches!(self.peekType(), TokenType::Identifier) {
                 self.expect(TokenType::Identifier);
@@ -601,6 +614,7 @@ impl Parser {
             self.expect(TokenType::CloseCurly);
         }
 
+        //  Actual enum node, has to be some since this function might not actaully define the enum
         Some(AST {
             Node: ASTNode::Enum {
                 name,
@@ -614,10 +628,12 @@ impl Parser {
         })
     }
 
-    fn parseStruct(&mut self) -> Option<AST> {
+    /// Parses the struct data and all of its function and variables
+    fn parseStruct(&mut self) -> AST {
         let start = self.pos;
         self.advance();
 
+        //  You have to name you structs
         let name = if matches!(self.peekType(), TokenType::Identifier) {
             self.consumeValue()
         } else {
@@ -625,6 +641,7 @@ impl Parser {
             String::from("") //  Never actually returns this since this will force an expect panic
         };
 
+        //  Scan for all the impliments the same way as for enums
         let mut implements = vec![];
         if matches!(self.peekType(), TokenType::Keyword) && self.peek().value == "impliments" {
             self.advance();
@@ -652,7 +669,6 @@ impl Parser {
 
         let mut members = vec![];
         let mut visibility = true;
-
         while !matches!(self.peekType(), TokenType::CloseCurly) {
             //  Read off the public / private settings
             if matches!(self.peekType(), TokenType::Identifier)
@@ -661,10 +677,12 @@ impl Parser {
                 visibility = matches!(self.consumeValue().as_str(), "public");
                 self.expect(TokenType::Colon);
             }
-
+            
+            //  mark the current possition as the start of a decleration
             let member_start = self.pos;
             let var_type = self.consumeTypeName();
 
+            //  decide if the member is a variable, function, or function implementation (like from Display impl)
             let is_func_implement = matches!(self.peekType(), TokenType::Identifier)
                 && self.pos + 1 < self.tokens.len()
                 && matches!(self.tokens[self.pos + 1].token_type, TokenType::ColonColon);
@@ -674,6 +692,7 @@ impl Parser {
                     && self.pos + 1 < self.tokens.len()
                     && matches!(self.tokens[self.pos + 1].token_type, TokenType::OpenRound));
 
+            //  Push the generated function AST or Variable Node to the list of members
             if is_func_implement || is_function {
                 self.pos = member_start;
                 //  notConstructor=false only when the type name matches the struct name
@@ -694,8 +713,8 @@ impl Parser {
 
         self.expect(TokenType::CloseCurly);
 
-        println!("{}", self.pos);
-        Some(AST {
+        //  Generate the actaul AST for the
+        AST {
             Node: ASTNode::Struct {
                 name,
                 implements,
@@ -705,22 +724,21 @@ impl Parser {
                 start_token: start,
                 end_token: self.pos,
             },
-        })
+        }
     }
 
+    /// Decide if the current position is a declaration of function since they have the same start
     fn parseDeclarationOrFunction(&mut self, notConstructor: bool) -> AST {
         let start_index = self.pos;
         let type_ = self.consumeTypeName();
 
+        //  If the function is a constructor (only ever true in a struct)
+        //      skip reading a name (since it doesnt exist)
+        //      and instead just use "new"
         let mut name = String::from("new");
         if notConstructor {
             name = self.peek().value.clone();
             self.advance();
-        }
-
-        if name == "Display"
-        {
-            let halt = 1 + 1;
         }
 
         match self.peekType() {
@@ -803,6 +821,7 @@ impl Parser {
         }
     }
 
+    /// Parse variable declarations
     fn parseDeclaration(&mut self) -> AST {
         let start_index = self.pos;
         let var_type = self.consumeTypeName();
