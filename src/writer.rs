@@ -6,6 +6,21 @@ use std::io::{Error, ErrorKind, Result, Write}; //  TODO Make own error
 //  help generate placeholder variable names so they dont conflict
 use uuid::Uuid;
 
+//  This file is what actually converts the parse tree into the rust syntax
+//  Originally I planned to convert the AST into a similar structure for a package "syn"
+//  However, once I got to here I relizes that would be much more work
+
+//  Most of the files are struct based, but this one is just functions
+//  There isnt actually that much information being passed back and forth between them.
+//      Data only flows down the tree never* up
+//  So it just made more sense to do it like that
+
+//  I think if you wanted to actually make this feature complete, it would need to be a class
+//  but that would require some kind of hooks into the actual rust compiler, which im definitely not doing at this time
+
+//  Most likely this file would have also been responsible for passing the errors back up the tree, through the tokenzer,
+//  and out the preprocessor so the original source lines could be recoverd, but I ran out of time
+
 /*
 Build out a map of all the enum names and the specifc enum they corrispond to. This lets us back map variables when writing
     Example:
@@ -41,9 +56,11 @@ fn build_enum_map(nodes: &Vec<ASTNode>) -> HashMap<String, String> {
 }
 
 pub fn writer(ast: AST, output: String) {
-    //  better error checking
+    //  TODO better error checking
     let mut file = File::create(output).expect("failed to create file");
 
+    //  The passed node must always be a Root node
+    //      if its not sommething went pretty wrong
     let nodes = if let ASTNode::Root(ref nodes) = ast.Node {
         nodes
     } else {
@@ -51,7 +68,8 @@ pub fn writer(ast: AST, output: String) {
     };
     let enum_map = build_enum_map(nodes);
 
-    write_node(&ast.Node, &mut file, 0, &enum_map).unwrap();
+    //  needs better checking
+    write_node(&ast.Node, &mut file, 0, &enum_map).expect("failed to write tp file");
 }
 
 fn write_node(
@@ -60,8 +78,12 @@ fn write_node(
     depth: usize,
     enum_map: &HashMap<String, String>,
 ) -> Result<()> {
+    //  this is the main worker function for writing,
+    //  all it does is look at the type of the current node, and use the correct writer for it
+
     match node {
         ASTNode::Root(nodes) => {
+            //  just write all of the nodes in the root
             for n in nodes {
                 write_node(n, file, depth, enum_map)?;
                 write!(file, "\n")?;
@@ -69,7 +91,14 @@ fn write_node(
         }
 
         ASTNode::Include(path) => {
+            //  the original include statments are passed all the way from the preprocessor, completly unchanged for the most part
+            //      here they are converted to either a "use" statment for external libraries,
+            //      or local "mod" statements to refrence local rust files
             let mut p = path.clone().trim().to_string();
+
+            //  filter based on starting char to dermine if local or external
+            //      " = local
+            //      < = external
             match p.pop() {
                 Some(c) => {
                     match c {
@@ -81,6 +110,7 @@ fn write_node(
                         '"' => {
                             p.remove(0);
 
+                            //  get rid of the file extension if its there
                             p = match p.rfind(".") {
                                 Some(index) => {
                                     p.split_off(index);
@@ -95,26 +125,37 @@ fn write_node(
                         }
                         _ => {
                             //println!("TESTING {} {}", c as u8, path);
-                            return Err(Error::new(ErrorKind::InvalidData, "unexpected character"));
+                            return Err(Error::new(
+                                ErrorKind::InvalidData,
+                                format!(
+                                    "unexpected character {} in include statment for {}",
+                                    c, path
+                                ),
+                            ));
                         } // TODO Better error backprop
                     }
                 }
                 None => {
                     //println!("TESTING {} {}", p, path);
-                    return Err(Error::new(ErrorKind::InvalidData, "unexpected character"));
+                    return Err(Error::new(ErrorKind::InvalidData, "Empty include statment"));
                 }
             }
         }
 
+        //  writing out functions, both inside structs and just in general
         ASTNode::Function {
             return_type,
             name,
             params,
             body,
         } => match body {
+            //  Not all function actually have bodies, but if they dont we really dont need to write anything
             Some(body) => {
                 write!(file, "fn {}(", name)?;
+                //  write all the parameters
                 for (i, p) in params.iter().enumerate() {
+                    //  get the actual values from the decleration
+                    //      Didnt get around to implementing default values so init must be None anyway
                     if let ASTNode::Declaration {
                         var_type,
                         name,
@@ -133,6 +174,7 @@ fn write_node(
                 indent(file, depth)?;
                 writeln!(file, "{{")?;
 
+                //  Write the insides of the function
                 for statment in body {
                     write_node(&statment.Node, file, depth + 1, enum_map)?;
                 }
@@ -143,6 +185,45 @@ fn write_node(
             None => {}
         },
 
+        ASTNode::FunctionImplement {
+            return_type,
+            struct_name,
+            method_name,
+            params,
+            body,
+        } => {
+            indent(file, depth)?;
+            writeln!(file, "impl {} for {} {{", struct_name, method_name)?;
+
+            indent(file, depth + 1)?;
+            write!(file, "fn {}(", method_name)?;
+
+            // write params
+            for (i, param) in params.iter().enumerate() {
+                if let ASTNode::Declaration { var_type, name, .. } = &param.Node {
+                    let (t, _) = map_type(var_type);
+                    write!(file, "{}: {}", name, t)?;
+                }
+                if i < params.len() - 1 {
+                    write!(file, ", ")?;
+                }
+            }
+
+            let (ret, _) = map_type(return_type);
+            writeln!(file, ") -> {} {{", ret)?;
+
+            for stmt in body {
+                write_node(&stmt.Node, file, depth + 2, enum_map)?;
+            }
+
+            indent(file, depth + 1)?;
+            writeln!(file, "}}")?;
+
+            indent(file, depth)?;
+            writeln!(file, "}}")?;
+        }
+
+        //  variable declerations
         ASTNode::Declaration {
             var_type,
             name,
@@ -150,15 +231,21 @@ fn write_node(
         } => {
             indent(file, depth)?;
 
+            //  you cant use let for variables in global scope so filter that
             let setCondition = if depth == 0 { "static" } else { "let" };
 
+            //  global scope vars also require extra things to be mutable so just force them all to non-mutable
             let (type_, isMutable) = map_type(var_type);
             let mutablility = if isMutable && depth > 0 { "mut" } else { "" };
 
+            //  write the first part of the declaration "let mut name"
             write!(file, "{} {} {}", setCondition, mutablility, name)?;
+
+            //  if the type was auto, omit the specifc typing and hope the rust compiler figues it out
             if type_ != "auto" {
                 write!(file, ": {}", type_)?;
             }
+            //  if this decleartion has a value, write it
             if let Some(init) = init {
                 write!(file, " = ")?;
                 write_expr(&init.Node, file, enum_map)?;
@@ -166,6 +253,7 @@ fn write_node(
             writeln!(file, ";")?;
         }
 
+        //  basically the sections of ifs and whiles that are inside of brackets
         ASTNode::Compound(statements) => {
             indent(file, depth)?;
             writeln!(file, "{{")?;
@@ -176,6 +264,9 @@ fn write_node(
             writeln!(file, "}}")?;
         }
 
+        //  if statments are pretty simple since all else ifs are flatted down to nested ifs
+        //      also we just write everything with an else even if its empty.
+        //      produced rust code is only meant to compile not be clean
         ASTNode::If {
             condition,
             then_branch,
@@ -185,39 +276,27 @@ fn write_node(
             write!(file, "if ")?;
             write_expr(&condition.Node, file, enum_map)?;
             writeln!(file, "")?;
-            indent(file, depth)?;
-            writeln!(file, "{{")?;
 
-            write_node(&then_branch.Node, file, depth + 1, enum_map)?;
-
-            indent(file, depth)?;
-            writeln!(file, "}}")?;
+            write_node(&then_branch.Node, file, depth, enum_map)?;
             indent(file, depth)?;
             writeln!(file, "else")?;
-            indent(file, depth)?;
-            writeln!(file, "{{")?;
 
-            write_node(&else_branch.Node, file, depth + 1, enum_map)?;
-
-            indent(file, depth)?;
-            writeln!(file, "}}")?;
+            write_node(&else_branch.Node, file, depth, enum_map)?;
         }
 
+        //  While loops are also easy since most of the complexitly is handled in the parser,
+        //      for loops are coverted down into while loops
         ASTNode::While { condition, body } => {
             indent(file, depth)?;
             write!(file, "while ")?;
             write_expr(&condition.Node, file, enum_map)?;
             indent(file, depth)?;
             writeln!(file, "")?;
-            indent(file, depth)?;
-            writeln!(file, "{{")?;
 
             write_node(&body.Node, file, depth + 1, enum_map)?;
-
-            indent(file, depth)?;
-            writeln!(file, "}}")?;
         }
 
+        //  direct mapping from c syntax
         ASTNode::Return(expr) => {
             indent(file, depth)?;
             write!(file, "return")?;
@@ -228,12 +307,14 @@ fn write_node(
             writeln!(file, ";")?;
         }
 
+        //  This part is pretty complex, and used in more places than this so see helper
         ASTNode::Expression(expr) => {
             indent(file, depth)?;
             write_expr(&expr.Node, file, enum_map)?;
             writeln!(file, ";")?;
         }
 
+        //  I only support the most basic type of enums here so the processing is really simple
         ASTNode::Enum {
             name,
             implements,
@@ -245,6 +326,8 @@ fn write_node(
             indent(file, depth)?;
             writeln!(file, "{{")?;
 
+            //  just write every option for the enum
+            //      they allow for trailing commas so its fine
             for option in options {
                 indent(file, depth + 1)?;
                 writeln!(file, "{},", option)?;
@@ -253,6 +336,7 @@ fn write_node(
             writeln!(file, "}}")?;
         }
 
+        //  Complex. so see function
         ASTNode::Struct {
             name,
             implements,
@@ -266,6 +350,7 @@ fn write_node(
     Ok(())
 }
 
+//  Main function for writing out structs
 fn write_struct(
     file: &mut File,
     name: &str,
@@ -274,9 +359,10 @@ fn write_struct(
     depth: usize,
     enum_map: &HashMap<String, String>,
 ) -> Result<()> {
-    //  Split all of the variables and functions into seperate lists
+    //  Split all of the variables and functions into seperate lists since they are written seperatly
     let mut variables: Vec<(bool, &ASTNode)> = vec![];
     let mut functions: Vec<(bool, &ASTNode)> = vec![];
+    let mut implementations: Vec<(bool, &ASTNode)> = vec![];
     for member in members {
         match member {
             StructMember::Variable {
@@ -285,16 +371,21 @@ fn write_struct(
             } => {
                 variables.push((*visibility, &declaration.Node));
             }
-            StructMember::Function { visibility, func } => {
-                //  Functions without bodies are skipped, they are defined layer
-                if let ASTNode::Function { body: Some(_), .. } = &func.Node {
+            StructMember::Function { visibility, func } => match &func.Node {
+                ASTNode::Function { body: Some(_), .. } => {
                     functions.push((*visibility, &func.Node));
-                    //println!("{:?}", func);
                 }
-            }
+
+                ASTNode::FunctionImplement { .. } => {
+                    implementations.push((*visibility, &func.Node));
+                }
+
+                _ => {}
+            },
         }
     }
 
+    //  write the #[derive(*)] for any statments that need it
     indent(file, depth)?;
     write_derive(file, depth, implements)?;
 
@@ -302,7 +393,6 @@ fn write_struct(
 
     //  Write out the variable definitions, and keep track of the default values (since you cant set them inline in rust)
     //      Defaults are later used for "new()"
-
     let mut default_map = HashMap::new();
     for (is_public, field) in &variables {
         if let ASTNode::Declaration {
@@ -343,6 +433,7 @@ fn write_struct(
                     write!(file, "pub ")?;
                 }
 
+                //  see function
                 write_struct_function(
                     file,
                     depth + 1,
@@ -354,6 +445,8 @@ fn write_struct(
                     &default_map,
                     enum_map,
                 )?;
+            } else {
+                println!("{}", method);
             }
         }
 
@@ -362,13 +455,52 @@ fn write_struct(
         writeln!(file)?;
     }
 
-    //  We only write these for traits that are NOT handled by #[derive],
-    //  since their method bodies come from FunctionImplement nodes at the top level.
-    //  The FunctionImplement writer handles the actual body — here we just note
-    //  which traits need a manual impl.  Display is the main case.
-    //
-    //  Nothing to emit here: the bodies are written when we hit the
-    //  FunctionImplement nodes during the Root traversal.
+    for implm in implementations {
+        let (visibility, impl_node) = implm;
+        if let ASTNode::FunctionImplement {
+            return_type,
+            struct_name,    //  in this case its actually the trait name
+            method_name,
+            params,
+            body,
+        } = impl_node
+        {
+            indent(file, depth)?;
+            writeln!(file, "impl {} for {} {{", struct_name, name)?;
+
+            indent(file, depth + 1)?;
+            write!(file, "fn {}(", method_name)?;
+
+            write!(file, "&self")?;
+            if params.len() > 0 {
+                write!(file, ", ")?;
+            }
+
+            for (i, param) in params.iter().enumerate() {
+                if let ASTNode::Declaration { var_type, name, .. } = &param.Node {
+                    let (t, _) = map_type(var_type);
+                    write!(file, "{}: {}", name, t)?;
+                }
+                if i < params.len() - 1 {
+                    write!(file, ", ")?;
+                }
+            }
+
+            let (ret, _) = map_type(return_type);
+            writeln!(file, ") -> {} {{", ret)?;
+
+            for stmt in body {
+                write_node(&stmt.Node, file, depth + 2, enum_map)?;
+            }
+
+            indent(file, depth + 1)?;
+            writeln!(file, "}}")?;
+
+            indent(file, depth)?;
+            writeln!(file, "}}")?;
+            writeln!(file)?;
+        }
+    }
 
     Ok(())
 }
@@ -411,15 +543,13 @@ fn write_struct_function(
 
     if name != "new" {
         write!(file, "&mut self")?;
-        if params.len() > 0
-        {
+        if params.len() > 0 {
             write!(file, ", ")?;
         }
     }
 
     if params.len() != 0 {
         for (i, param) in params.iter().enumerate() {
-
             if let ASTNode::Declaration {
                 var_type,
                 name: param_name,
@@ -430,8 +560,7 @@ fn write_struct_function(
                 write!(file, "{}: {}", param_name, rust_type)?;
             }
 
-            if i < params.len()-1
-            {
+            if i < params.len() - 1 {
                 write!(file, ", ")?;
             }
         }
@@ -525,10 +654,20 @@ fn write_expr(node: &ASTNode, file: &mut File, enum_map: &HashMap<String, String
             write!(file, " {} ", map_operation(op))?;
             write_expr(&right.Node, file, enum_map)?;
         }
-        ASTNode::Unary { op, expr } => {
-            write!(file, "{}", map_operation(op))?;
-            write_expr(&expr.Node, file, enum_map)?;
-        }
+        ASTNode::Unary { op, expr } => match op {
+            TokenType::PlusPlus => {
+                write_expr(&expr.Node, file, enum_map)?;
+                write!(file, " += 1")?;
+            }
+            TokenType::MinusMinus => {
+                write_expr(&expr.Node, file, enum_map)?;
+                write!(file, " -= 1")?;
+            }
+            _ => {
+                write!(file, "{}", map_operation(op))?;
+                write_expr(&expr.Node, file, enum_map)?;
+            }
+        },
         ASTNode::Literal(val) => {
             write!(file, "{}", escape_literal(val))?;
         }
@@ -589,7 +728,7 @@ fn map_type(c_type: &CType) -> (String, bool) {
         CType::Reference(inner) => {
             let (s, _) = map_type(inner);
             (format!("&mut {}", s), true)
-        },
+        }
         CType::Template(name, args) => {
             let mapped_args: Vec<String> = args.iter().map(|a| map_type(a).0).collect();
             let rust_name = match name.as_str() {

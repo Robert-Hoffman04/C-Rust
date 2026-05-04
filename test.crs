@@ -1,6 +1,6 @@
-#include <std::vec>          //  External rust lib import
-#include <std::fmt>
-#include "other.hrs"    //  Local file refrence
+#include <std::vec>             //  External rust lib import
+#include <std::fmt::{Display, Result, Formatter}>
+#include "other.hrs"            //  Local file refrence
 #include "rustImportTest.rs"    //  Local rust file support
 
 
@@ -38,10 +38,9 @@ however syntax for traits is changed away from the inheritence formating in C++.
 */
 
 struct ExampleStruct impliments Debug, Display
-{
+{   
+        int A;  //  test to make sure default is public
     public:
-
-        int A;
         const int B;
 
         ExampleStruct(int A)
@@ -62,7 +61,7 @@ struct ExampleStruct impliments Debug, Display
 
         Result Display::fmt(Formatter& f)
         {
-            return Macro::write(f, "A: {}, B: {}", A, B);
+            return Macro::write(f, "A: {}, B: {}", this.A, this.B);
         }
 
     private:
@@ -109,6 +108,18 @@ void main()
 
     auto_mutablility_test    += test;
     auto_non_mutablilty_test += test; //    If this line is commented, then the variable should stay non-mutable otherwise it should auto shift to mutable
+
+    if (auto_mutablility_test >= 11)
+    {
+        Macro::print("Yeah addition works\n");
+    }
+
+    int forTest = 0;
+    for (int i = 1; i <= 10; i++)
+    {
+        forTest += i;
+    }
+    Macro::print("For loop testing: {} == 55\n", forTest);
     
     rust_vector.push(1);
     rust_vector.push(2);
