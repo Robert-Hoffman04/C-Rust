@@ -21,22 +21,21 @@ use uuid::Uuid;
 //  Most likely this file would have also been responsible for passing the errors back up the tree, through the tokenzer,
 //  and out the preprocessor so the original source lines could be recoverd, but I ran out of time
 
-/*
-Build out a map of all the enum names and the specifc enum they corrispond to. This lets us back map variables when writing
-    Example:
-        //  Enum decleration same in C and Rust
-        enum Level {
-            LOW,
-            MEDIUM,
-            HIGH
-        };
 
-        //  C usage
-        enum Level myVar = MEDIUM;
-
-        //  Rust usage
-        let myVar : Level = Level::MEDIUM;
-*/
+///Build out a map of all the enum names and the specifc enum they corrispond to. This lets us back map variables when writing
+///    Example:```
+///        //  Enum decleration same in C and Rust
+///        enum Level {
+///            LOW,
+///            MEDIUM,
+///            HIGH
+///        };
+///
+///        //  C usage
+///        enum Level myVar = MEDIUM;
+///
+///        //  Rust usage
+///        let myVar : Level = Level::MEDIUM;```
 fn build_enum_map(nodes: &Vec<ASTNode>) -> HashMap<String, String> {
     let mut map = HashMap::new();
     for ast in nodes {
@@ -55,6 +54,7 @@ fn build_enum_map(nodes: &Vec<ASTNode>) -> HashMap<String, String> {
     map
 }
 
+/// input point for the main writer tree. Makes sure the first node is a root, scans for enums, then starts the writer
 pub fn writer(ast: AST, output: String) {
     //  TODO better error checking
     let mut file = File::create(output).expect("failed to create file");
@@ -71,7 +71,7 @@ pub fn writer(ast: AST, output: String) {
     //  needs better checking
     write_node(&ast.Node, &mut file, 0, &enum_map).expect("failed to write tp file");
 }
-
+/// Recursive function that decends down the AST. Writes any leaf nodes directly, or calls helpers for more complex pieces
 fn write_node(
     node: &ASTNode,
     file: &mut File,
@@ -350,7 +350,7 @@ fn write_node(
     Ok(())
 }
 
-//  Main function for writing out structs
+///  Main function for writing out structs
 fn write_struct(
     file: &mut File,
     name: &str,
@@ -505,6 +505,7 @@ fn write_struct(
     Ok(())
 }
 
+/// Writes the `#[derive(*)]` directives at the start of a struct or enum
 fn write_derive(file: &mut File, depth: usize, implements: &Vec<String>) -> Result<()> {
     //  Implemetns contains define things as well as traits
     let derivable: Vec<&str> = implements
@@ -525,6 +526,7 @@ fn write_derive(file: &mut File, depth: usize, implements: &Vec<String>) -> Resu
     Ok(())
 }
 
+/// Special writer for struct functions since it needs to catch constructor replacement
 fn write_struct_function(
     file: &mut File,
     depth: usize,
@@ -647,6 +649,8 @@ fn write_struct_function(
     Ok(())
 }
 
+/// Another recursive function for writing out expressions. Example `1 * (2 + 3)`
+/// Also writes some leaf nodes itself if they are a value of function call
 fn write_expr(node: &ASTNode, file: &mut File, enum_map: &HashMap<String, String>) -> Result<()> {
     match node {
         ASTNode::Binary { op, left, right } => {
@@ -703,7 +707,7 @@ fn write_expr(node: &ASTNode, file: &mut File, enum_map: &HashMap<String, String
     Ok(())
 }
 
-//  used to make sure it can properly write things like printf("A line\n");
+///  used to make sure it can properly write things like printf("A line\n");
 fn escape_literal(lit: &LiteralType) -> String {
     match lit {
         LiteralType::String(s) => format!("\"{}\"", escape_str(s.as_str())),
@@ -712,6 +716,8 @@ fn escape_literal(lit: &LiteralType) -> String {
     }
 }
 
+        /// Another recursive function to get the rust equivalent type for C types
+// Seeing a pattern yet /\
 fn map_type(c_type: &CType) -> (String, bool) {
     match c_type {
         CType::Const(inner) => {
@@ -752,6 +758,7 @@ fn map_type(c_type: &CType) -> (String, bool) {
     }
 }
 
+///  Maps tokenType operations back to the character values
 fn map_operation(op: &TokenType) -> &str {
     match op {
         TokenType::Plus => "+",
@@ -799,6 +806,7 @@ fn map_operation(op: &TokenType) -> &str {
     }
 }
 
+/// Helper to make sure the output is at least a little formatted
 fn indent(file: &mut File, depth: usize) -> Result<()> {
     for _ in 0..depth {
         write!(file, "    ")?;

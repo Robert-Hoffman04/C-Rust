@@ -4,13 +4,21 @@ use std::io::{self, Write};
 //  Anonymous enums need an actual name for rust to function properly
 use uuid::Uuid;
 
-//  Simplify keeping track of token locations from original file,
+/*
+    Big disclaimer is that I really dont know why the parsing code is done in this way.
+    This is what I can half remember from 3 years ago when I wrote a C parser in python
+    But it works so like, guess its fine?
+*/
+
+///  Simplify keeping track of token locations from original file
+// This made more sense before but i changed some stuff so
 #[derive(Debug, Clone)]
 pub struct Span {
     start_token: usize,
     end_token: usize,
 }
 
+/// Tie a node to its token positions
 #[derive(Debug, Clone)]
 pub struct AST {
     pub Node: ASTNode,
@@ -20,6 +28,7 @@ pub struct AST {
 #[derive(Debug, Clone)]
 //  Tokens were a stuct because they largly had the same structure,
 //  This is an enum because each individual type has very specific requirments
+/// Main typing system to hold data about each code "action"
 pub enum ASTNode {
     Root(Vec<ASTNode>), //    The Head of all AST's
 
@@ -98,6 +107,7 @@ pub enum ASTNode {
     },
 }
 
+/// Stores functions or variables for a struct in the same type
 #[derive(Debug, Clone)]
 pub enum StructMember {
     Variable {
@@ -110,6 +120,7 @@ pub enum StructMember {
     },
 }
 
+/// Stores raw values in a single type
 #[derive(Debug, Clone)]
 pub enum LiteralType {
     String(String),
@@ -117,6 +128,8 @@ pub enum LiteralType {
     Number(String),
 }
 
+/// Recursive struct to keep track of all the modifiers on a given type
+/// Example `static const Custom<int>*`
 #[derive(Debug, Clone)]
 pub enum CType {
     Named(String),
@@ -146,7 +159,7 @@ impl fmt::Display for CType {
     }
 }
 
-//  helper function becasue printing string literals wasnt actually escaped
+///  helper function becasue printing string literals wasnt actually escaped
 pub fn escape_str(s: &str) -> String {
     let mut out = String::new();
     for c in s.chars() {
@@ -166,8 +179,12 @@ pub fn escape_str(s: &str) -> String {
 }
 
 impl ASTNode {
-    //  The following code is actually just converted python from a similar project I did ~3 years ago.
-    //      Mostly just to help debug the output for the parser
+    //  It was really hard to debug the parser without a good way to visualize it
+    //  So i went and 'stole' some code from my first ever github pull-request
+    //      https://github.com/eliben/pycparser/pull/518
+    //  Did it get accepted? No, but that doesnt mean it didnt work
+
+    /// Recursive entry point for righting a current node branch
     pub fn show<W: Write>(
         &self,
         buf: &mut W,

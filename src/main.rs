@@ -34,6 +34,7 @@ enum ArgumentState {
     OutputFile,
 }
 
+/// Takes the list of arguments passed to executable and converts it to an Arguments struct
 fn handleArgs(mut args: Vec<String>) -> Result<Arguments, Error> {
     //  Consume first argument as it is just the executable
     args.remove(0);
@@ -97,6 +98,7 @@ fn handleArgs(mut args: Vec<String>) -> Result<Arguments, Error> {
     Ok(arguments)
 }
 
+/// Takes the argument list and actually executes the step by step convertion. Also dispatches final writing and build
 fn process(args: Arguments) -> () {
     let mut processor = PreProcessor::new(args.input_file);
     processor.process_file();
@@ -132,6 +134,7 @@ fn process(args: Arguments) -> () {
 }
 
 //      Frankly i dont understand why this result is diffrent
+/// Creates the new cargo directory for the final files
 fn cargoCreate(dir_name: &String, files: Vec<String>) -> std::io::Result<()> {
     //  create new cargo project
     Command::new("cargo").arg("new").arg(&dir_name).status()?;
@@ -152,6 +155,7 @@ fn cargoCreate(dir_name: &String, files: Vec<String>) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Builds or runs the final files based on arguments
 fn cargoBuildOrRun(dir_name: String, run: bool) -> std::io::Result<()>
 {
     //  decide if building or running
