@@ -121,15 +121,19 @@ void main()
     //rust_auto_vector.push('t');
     //rust_auto_vector.push(1);   //  Should cause an error
 
-    struct ExampleStruct structTest = ExampleStruct::new(15);
+    struct ExampleStruct structTest = ExampleStruct(15);
     structTest.test_print("This is from inside a struct");
-    structTest.private_print("This is from inside a struct (FAIL)");   //  This should cause an error
+
+    //  Rust private and C++ private do not work the same way so
+    //      while the public/private identifiers do technically work, 
+    //      its not the same as i thought it would be
+    //structTest.private_print("This is from inside a struct (FAIL)");   //  This should cause an error
 
     structTest.A += structTest.B;
     structTest.B += structTest.B;  //  This should cause an error
     structTest.C += structTest.B;  //  This should cause an error
 
-    Macro::print("Testing print macro conversion {}", imported_var);
+    Macro::print("Testing print macro conversion {}\n", imported_var);
 
     rustImportTest::local_rust_function_test(structTest);
 

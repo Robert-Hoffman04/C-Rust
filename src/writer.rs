@@ -94,13 +94,13 @@ fn write_node(
                             //writeln!(file, "use {};", p)?;
                         }
                         _ => {
-                            println!("TESTING {} {}", c as u8, path);
+                            //println!("TESTING {} {}", c as u8, path);
                             return Err(Error::new(ErrorKind::InvalidData, "unexpected character"));
                         } // TODO Better error backprop
                     }
                 }
                 None => {
-                    println!("TESTING {} {}", p, path);
+                    //println!("TESTING {} {}", p, path);
                     return Err(Error::new(ErrorKind::InvalidData, "unexpected character"));
                 }
             }
@@ -289,7 +289,7 @@ fn write_struct(
                 //  Functions without bodies are skipped, they are defined layer
                 if let ASTNode::Function { body: Some(_), .. } = &func.Node {
                     functions.push((*visibility, &func.Node));
-                    println!("{:?}", func);
+                    //println!("{:?}", func);
                 }
             }
         }

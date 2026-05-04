@@ -401,6 +401,7 @@ pub struct Parser {
 
     includes: Vec<String>,
     external: Vec<String>,
+    struct_names: Vec<String>,
 }
 
 impl Parser {
@@ -410,10 +411,28 @@ impl Parser {
             pos: 0,
             includes: vec![],
             external: vec![],
+            struct_names: vec![]
         }
     }
 
     pub fn parse(&mut self) -> AST {
+
+        let mut willBeStruct = false;
+        for token in &self.tokens
+        {
+            if token.value == "struct"
+            {
+                willBeStruct = true;
+                continue;
+            }
+
+            if willBeStruct
+            {
+                self.struct_names.push(token.value.clone());
+            }
+            willBeStruct = false;
+        }
+
         let mut nodes = Vec::new();
 
         while self.pos < self.tokens.len() {
@@ -1477,13 +1496,22 @@ impl Parser {
                 self.advance();
 
                 if *self.peekType() == TokenType::OpenRound {
-                    //  Function call
+                    
+                    //  Constructor mapping.
+                    //  if the function name matches an existing struct name, replace the function call with "name::new()"
+                    let function_name = if self.struct_names.contains(&name) {
+                        format!("{}::new", name)
+                    } else {
+                        name
+                    };
+
+
                     self.advance();
                     let arguments = self.parseArguments();
                     self.expect(TokenType::CloseRound);
                     AST {
                         Node: ASTNode::Call {
-                            function_name: name,
+                            function_name,
                             arguments,
                         },
                         Span: Span {
