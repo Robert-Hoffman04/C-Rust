@@ -25,18 +25,13 @@ pub struct PreProcessor
 
 impl PreProcessor
 {
-    const RESERVED: [&'static str ; 11] = [
+    const RESERVED: [&'static str ; 6] = [
         "#define",  //Done
         "#undef",   //Done
-        "#include", //Done-ish
+        "#include", //Done
         "#ifdef",   //Done
         "#ifndef",  //Done
         "#endif",   //Done
-        "#if",
-        "#elif",
-        "#else",
-        "#error",
-        "#pragma"
     ];
 
     pub fn new(original_input : String) -> PreProcessor
