@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, ops::Index, process::Output, vec};
 use regex::Regex;
 
 ///  This stuct is responsible for keeping track of the source location for error traceback
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SourceLine
 {
     pub file: String,

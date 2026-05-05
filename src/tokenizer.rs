@@ -76,7 +76,7 @@ const keywords: [&str; 35] = [
 
 /// Main object to store token position data
 /// the start and end lines actually point to indexs in the sourceline vector
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub value: String,
@@ -358,6 +358,7 @@ impl Tokenizer {
         }
     }
 
+    /// helper for if the token type is a single character no value
     fn pushSingle(&mut self, token_type: TokenType) {
         self.tokens.push(Token {
             token_type,
@@ -369,6 +370,7 @@ impl Tokenizer {
         });
     }
 
+    /// helper for if the token type is a double character no value
     fn pushDouble(&mut self, token_type: TokenType) {
         self.tokens.push(Token {
             token_type,
@@ -380,6 +382,8 @@ impl Tokenizer {
         });
     }
 
+    /// given a stack of characters in value, decide if it is a number keyword or identifier
+    // strings handled elsewere
     fn resolveStack(
         &mut self,
         value: String,
@@ -408,6 +412,7 @@ impl Tokenizer {
         })
     }
 
+    /// read a full string literal
     fn readStringLiteral(&mut self) -> String {
         let mut result = String::new();
 
@@ -420,8 +425,8 @@ impl Tokenizer {
         result
     }
 
-    //  Reads the next char literal out of the token stream
-    //      For example: char c = '\n'
+    ///  Reads the next char literal out of the token stream
+    ///      For example: char c = '\n'
     fn readCharLiteral(&mut self) -> char {
         let c = self.getCurrentChar();
 
@@ -465,6 +470,7 @@ impl Tokenizer {
         }
     }
 
+    /// Helper to get the current character index from both the line and character position
     fn getCurrentChar(&mut self) -> char {
         //  if all lines have been worked through, just return EOF
         if self.line_index >= self.lines.len() {
@@ -486,6 +492,7 @@ impl Tokenizer {
         //  the char_index, line index manipulation is handled completly automatically
     }
 
+    //  see what the next character in the stream is
     fn peakNextChar(&mut self) -> char {
         let next_char_index = self.char_index + 1;
 

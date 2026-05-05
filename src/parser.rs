@@ -1,3 +1,4 @@
+use crate::CRustError;
 use super::tokenizer::{Token, TokenType};
 use std::fmt;
 use std::io::{self, Write};
@@ -444,7 +445,7 @@ impl Parser {
     }
 
     /// Actual parse function called by main
-    pub fn parse(&mut self) -> AST {
+    pub fn parse(&mut self) -> Result<AST, CRustError> {
         //  Scan the incoming token list for any structure definitions ahead of time
         //      this lets me later change their constructors into the proper "::new()" function
         let mut willBeStruct = false;
@@ -460,17 +461,17 @@ impl Parser {
             willBeStruct = false;
         }
 
-        let mut nodes = Vec::new();
+        let mut nodes: Vec<AST> = Vec::new();
 
         //  Iterate though all of the tokens that were passed, running diffrent functions based on type
         while self.pos < self.tokens.len() {
             match self.peekType() {
-                TokenType::Include => nodes.push(self.parseInclude()),
+                TokenType::Include => nodes.push(self.parseInclude()?),
                 TokenType::Keyword => match self.peek().value.as_str() {
                     //  the typedef diffrence ended up being kind of pointless in the end
                     //      but kept because im not rewriting a bunch of code
                     "typedef" => {
-                        let def = self.parseTypedef();
+                        let def = self.parseTypedef()?;
                         match def {
                             Some(val) => nodes.push(val),
                             None => {}
@@ -478,34 +479,34 @@ impl Parser {
                     }
 
                     "enum" => {
-                        if let Some(node) = self.parseEnum() {
+                        if let Some(node) = self.parseEnum()? {
                             nodes.push(node);
                         }
                     }
                     "struct" => {
-                        nodes.push(self.parseStruct());
+                        nodes.push(self.parseStruct()?);
                     }
                     //  Anything that wasnt part of the existing types there is must be a type name for a delecration or function
-                    _ => nodes.push(self.parseDeclarationOrFunction(true)),
+                    _ => nodes.push(self.parseDeclarationOrFunction(true)?),
                 },
                 //  Since you might have imported rust types identifers could also be a valid type
-                TokenType::Identifier => nodes.push(self.parseDeclarationOrFunction(true)),
+                TokenType::Identifier => nodes.push(self.parseDeclarationOrFunction(true)?),
                 _ => self.advance(),
             }
         }
 
         //  Create the final root node to be returned
-        AST {
+        Ok(AST {
             Node: ASTNode::Root(nodes.into_iter().map(|n| n.Node).collect()),
             Span: Span {
                 start_token: 0,
                 end_token: self.tokens.len(),
             },
-        }
+        })
     }
 
     /// Converted include tokens to a single include node in the tree for the writer to finally use
-    fn parseInclude(&mut self) -> AST {
+    fn parseInclude(&mut self) -> Result<AST, CRustError> {
         let inc = AST {
             Node: ASTNode::Include(self.peek().value.clone()),
             Span: Span {
@@ -514,16 +515,19 @@ impl Parser {
             },
         };
         self.advance();
-        inc
+        Ok(inc)
     }
 
     /// Decideds if an enum or struct comes next, and also where the name for it is
-    fn parseTypedef(&mut self) -> Option<AST> {
+    fn parseTypedef(&mut self) -> Result<Option<AST>, CRustError> {
         self.advance();
 
         match self.peek().value.as_str() {
             "enum" => {
-                let mut node = self.parseEnum()?;
+                let mut node = match self.parseEnum()? {
+                    Some(val) => val,
+                    None => return Ok(None)
+                };
 
                 if *self.peekType() != TokenType::Semicolon {
                     let alias = self.consumeValue();
@@ -532,11 +536,11 @@ impl Parser {
                         *name = alias;
                     }
                 }
-                self.expect(TokenType::Semicolon);
-                Some(node)
+                self.expect(TokenType::Semicolon)?;
+                Ok(Some(node))
             }
             "struct" => {
-                let mut node = self.parseStruct();
+                let mut node = self.parseStruct()?;
 
                 if *self.peekType() != TokenType::Semicolon {
                     let alias = self.consumeValue();
@@ -545,15 +549,15 @@ impl Parser {
                         *name = alias;
                     }
                 }
-                self.expect(TokenType::Semicolon);
-                Some(node)
+                self.expect(TokenType::Semicolon)?;
+                Ok(Some(node))
             }
-            _ => Some(self.parseDeclarationOrFunction(true)),
+            _ => Ok(Some(self.parseDeclarationOrFunction(true)?)),
         }
     }
 
     /// parse enums into the enum node
-    fn parseEnum(&mut self) -> Option<AST> {
+    fn parseEnum(&mut self) -> Result<Option<AST>, CRustError> {
         let start = self.pos;
         self.advance(); //  alwasy just "enum"
 
@@ -572,7 +576,7 @@ impl Parser {
 
             loop {
                 if !matches!(self.peekType(), TokenType::Identifier) {
-                    self.expect(TokenType::Identifier);
+                    self.expect(TokenType::Identifier)?;
                 }
 
                 implements.push(self.consumeValue());
@@ -585,7 +589,7 @@ impl Parser {
                     break;
                 }
 
-                self.expect(TokenType::OpenCurly);
+                self.expect(TokenType::OpenCurly)?;
             }
         }
 
@@ -593,16 +597,16 @@ impl Parser {
         //      The later definition is the exact same format as a proper initilization
         //      so we can just throw this kind of def away
         if matches!(self.peekType(), TokenType::Semicolon) {
-            return None;
+            return Ok(None);
         }
 
-        self.expect(TokenType::OpenCurly);
+        self.expect(TokenType::OpenCurly)?;
 
         //  Look through all of the enum options and save them for the writer
         let mut options = vec![];
         loop {
             if !matches!(self.peekType(), TokenType::Identifier) {
-                self.expect(TokenType::Identifier);
+                self.expect(TokenType::Identifier)?;
             }
 
             options.push(self.consumeValue());
@@ -617,11 +621,11 @@ impl Parser {
                 break;
             }
 
-            self.expect(TokenType::CloseCurly);
+            self.expect(TokenType::CloseCurly)?;
         }
 
         //  Actual enum node, has to be some since this function might not actaully define the enum
-        Some(AST {
+        Ok(Some(AST {
             Node: ASTNode::Enum {
                 name,
                 implements,
@@ -631,11 +635,11 @@ impl Parser {
                 start_token: start,
                 end_token: self.pos,
             },
-        })
+        }))
     }
 
     /// Parses the struct data and all of its function and variables
-    fn parseStruct(&mut self) -> AST {
+    fn parseStruct(&mut self) -> Result<AST, CRustError> {
         let start = self.pos;
         self.advance();
 
@@ -643,7 +647,7 @@ impl Parser {
         let name = if matches!(self.peekType(), TokenType::Identifier) {
             self.consumeValue()
         } else {
-            self.expect(TokenType::Identifier);
+            self.expect(TokenType::Identifier)?;
             String::from("") //  Never actually returns this since this will force an expect panic
         };
 
@@ -654,7 +658,7 @@ impl Parser {
 
             loop {
                 if !matches!(self.peekType(), TokenType::Identifier) {
-                    self.expect(TokenType::Identifier);
+                    self.expect(TokenType::Identifier)?;
                 }
 
                 implements.push(self.consumeValue());
@@ -667,11 +671,11 @@ impl Parser {
                     break;
                 }
 
-                self.expect(TokenType::OpenCurly);
+                self.expect(TokenType::OpenCurly)?;
             }
         }
 
-        self.expect(TokenType::OpenCurly);
+        self.expect(TokenType::OpenCurly)?;
 
         let mut members = vec![];
         let mut visibility = true;
@@ -681,7 +685,7 @@ impl Parser {
                 && ["public", "private"].contains(&self.peek().value.as_str())
             {
                 visibility = matches!(self.consumeValue().as_str(), "public");
-                self.expect(TokenType::Colon);
+                self.expect(TokenType::Colon)?;
             }
 
             //  mark the current possition as the start of a decleration
@@ -703,13 +707,13 @@ impl Parser {
                 self.pos = member_start;
                 //  notConstructor=false only when the type name matches the struct name
                 let not_constructor = var_type.to_string() != name || is_func_implement;
-                let func = self.parseDeclarationOrFunction(not_constructor);
+                let func = self.parseDeclarationOrFunction(not_constructor)?;
                 members.push(StructMember::Function { visibility, func });
             }
             //  just a declaration
             else {
                 self.pos = member_start;
-                let declaration = self.parseDeclarationOrFunction(true);
+                let declaration = self.parseDeclarationOrFunction(true)?;
                 members.push(StructMember::Variable {
                     visibility,
                     declaration,
@@ -717,10 +721,10 @@ impl Parser {
             }
         }
 
-        self.expect(TokenType::CloseCurly);
+        self.expect(TokenType::CloseCurly)?;
 
         //  Generate the actaul AST for the
-        AST {
+        Ok(AST {
             Node: ASTNode::Struct {
                 name,
                 implements,
@@ -730,11 +734,11 @@ impl Parser {
                 start_token: start,
                 end_token: self.pos,
             },
-        }
+        })
     }
 
     /// Decide if the current position is a declaration of function since they have the same start
-    fn parseDeclarationOrFunction(&mut self, notConstructor: bool) -> AST {
+    fn parseDeclarationOrFunction(&mut self, notConstructor: bool) -> Result<AST, CRustError> {
         let start_index = self.pos;
         let type_ = self.consumeTypeName();
 
@@ -754,12 +758,12 @@ impl Parser {
             TokenType::ColonColon => {
                 self.advance();
                 let method_name = self.consumeValue();
-                self.expect(TokenType::OpenRound);
+                self.expect(TokenType::OpenRound)?;
                 let params = self.parseParams();
-                self.expect(TokenType::CloseRound);
-                let body = self.parseBlock();
+                self.expect(TokenType::CloseRound)?;
+                let body = self.parseBlock()?;
 
-                AST {
+                Ok(AST {
                     Node: ASTNode::FunctionImplement {
                         struct_name: name,
                         return_type: type_,
@@ -771,7 +775,7 @@ impl Parser {
                         start_token: start_index,
                         end_token: self.pos,
                     },
-                }
+                })
             }
             //  Its a function
             TokenType::OpenRound => {
@@ -779,17 +783,17 @@ impl Parser {
 
                 let params = self.parseParams();
 
-                self.expect(TokenType::CloseRound);
+                self.expect(TokenType::CloseRound)?;
 
                 let body = match self.peekType() {
-                    TokenType::OpenCurly => Some(self.parseBlock()),
+                    TokenType::OpenCurly => Some(self.parseBlock()?),
                     _ => {
-                        self.expect(TokenType::Semicolon);
+                        self.expect(TokenType::Semicolon)?;
                         None
                     }
                 };
 
-                AST {
+                Ok(AST {
                     Node: ASTNode::Function {
                         return_type: type_,
                         name,
@@ -800,19 +804,19 @@ impl Parser {
                         start_token: start_index,
                         end_token: self.pos,
                     },
-                }
+                })
             }
             //  Not a function
             _ => {
                 let mut value = None;
                 if *self.peekType() == TokenType::Equals {
                     self.advance();
-                    value = Some(Box::new(self.parseExpression()));
+                    value = Some(Box::new(self.parseExpression()?));
                 }
 
-                self.expect(TokenType::Semicolon);
+                self.expect(TokenType::Semicolon)?;
 
-                AST {
+                Ok(AST {
                     Node: ASTNode::Declaration {
                         var_type: type_,
                         name,
@@ -822,13 +826,13 @@ impl Parser {
                         start_token: start_index,
                         end_token: self.pos,
                     },
-                }
+                })
             }
         }
     }
 
     /// Parse variable declarations
-    fn parseDeclaration(&mut self) -> AST {
+    fn parseDeclaration(&mut self) -> Result<AST, CRustError> {
         let start_index = self.pos;
         let var_type = self.consumeTypeName();
         let name = self.consumeValue();
@@ -836,12 +840,12 @@ impl Parser {
         let mut init = None;
         if self.has_tokens() && *self.peekType() == TokenType::Equals {
             self.advance();
-            init = Some(Box::new(self.parseExpression()));
+            init = Some(Box::new(self.parseExpression()?));
         }
 
-        self.expect(TokenType::Semicolon);
+        self.expect(TokenType::Semicolon)?;
 
-        AST {
+        Ok(AST {
             Node: ASTNode::Declaration {
                 var_type,
                 name,
@@ -851,7 +855,7 @@ impl Parser {
                 start_token: start_index,
                 end_token: self.pos,
             },
-        }
+        })
     }
 
     /// Lookahead in the token stream to decide if its a dcleration or not
@@ -982,32 +986,32 @@ impl Parser {
     }
 
     /// Parse the inside of a set of curly brackets
-    fn parseBlock(&mut self) -> Vec<AST> {
+    fn parseBlock(&mut self) -> Result<Vec<AST>, CRustError> {
         let mut body = Vec::new();
-        self.expect(TokenType::OpenCurly);
+        self.expect(TokenType::OpenCurly)?;
 
         while *self.peekType() != TokenType::CloseCurly {
-            body.push(self.parseStatement());
+            body.push(self.parseStatement()?);
         }
 
-        self.expect(TokenType::CloseCurly);
-        body
+        self.expect(TokenType::CloseCurly)?;
+        Ok(body)
     }
 
     /// parse the insides of ifs, whiles, fors, etc that have optional brackets or single lines
-    fn parseStatement(&mut self) -> AST {
+    fn parseStatement(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
 
         //  if we see a curly, it is a block so run that 
         if *self.peekType() == TokenType::OpenCurly {
-            let block = self.parseBlock();
-            return AST {
+            let block = self.parseBlock()?;
+            return Ok(AST {
                 Node: ASTNode::Compound(block),
                 Span: Span {
                     start_token,
                     end_token: self.pos,
                 },
-            };
+            });
         }
 
         //  otherwise, its a single line so figure out what its doing
@@ -1017,39 +1021,39 @@ impl Parser {
                     self.advance();
 
                     let expr = if *self.peekType() != TokenType::Semicolon {
-                        Some(Box::new(self.parseExpression()))
+                        Some(Box::new(self.parseExpression()?))
                     } else {
                         None
                     };
 
-                    self.expect(TokenType::Semicolon);
+                    self.expect(TokenType::Semicolon)?;
 
-                    return AST {
+                    return Ok(AST {
                         Node: ASTNode::Return(expr),
                         Span: Span {
                             start_token,
                             end_token: self.pos,
                         },
-                    };
+                    });
                 }
                 "if" => return self.parseIf(),
                 "while" => return self.parseWhile(),
                 "for" => return self.parseFor(),
                 "continue" => {
                     self.advance();
-                    self.expect(TokenType::Semicolon);
-                    return AST {
+                    self.expect(TokenType::Semicolon)?;
+                    return Ok(AST {
                         Node: ASTNode::GenericKeyword(String::from("continue")),
                         Span: Span { start_token, end_token: self.pos },
-                    };
+                    });
                 }
                 "break" => {
                     self.advance();
-                    self.expect(TokenType::Semicolon);
-                    return AST {
+                    self.expect(TokenType::Semicolon)?;
+                    return Ok(AST {
                         Node: ASTNode::GenericKeyword(String::from("break")),
                         Span: Span { start_token, end_token: self.pos },
-                    };
+                    });
                 }
                 _ => return self.parseDeclaration(),
             }
@@ -1059,29 +1063,29 @@ impl Parser {
             return self.parseDeclaration();
         }
 
-        let expr = self.parseExpression();
-        self.expect(TokenType::Semicolon);
-        AST {
+        let expr = self.parseExpression()?;
+        self.expect(TokenType::Semicolon)?;
+        Ok(AST {
             Node: ASTNode::Expression(Box::new(expr)),
             Span: Span {
                 start_token,
                 end_token: self.pos,
             },
-        }
+        })
     }
 
     /// parse if statments
-    fn parseIf(&mut self) -> AST {
+    fn parseIf(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
         self.advance();
-        self.expect(TokenType::OpenRound);
-        let condition = self.parseExpression();
-        self.expect(TokenType::CloseRound);
+        self.expect(TokenType::OpenRound)?;
+        let condition = self.parseExpression()?;
+        self.expect(TokenType::CloseRound)?;
 
-        let then_branch = self.parseStatement();
+        let then_branch = self.parseStatement()?;
         let else_branch = if *self.peekType() == TokenType::Keyword && self.peek().value == "else" {
             self.advance();
-            self.parseStatement()
+            self.parseStatement()?
         } else {
             AST {
                 Node: ASTNode::Compound(vec![]),
@@ -1092,7 +1096,7 @@ impl Parser {
             }
         };
 
-        AST {
+        Ok(AST {
             Node: ASTNode::If {
                 condition: Box::new(condition),
                 then_branch: Box::new(then_branch),
@@ -1102,19 +1106,19 @@ impl Parser {
                 start_token,
                 end_token: self.pos,
             },
-        }
+        })
     }
 
     /// parse while statements
-    fn parseWhile(&mut self) -> AST {
+    fn parseWhile(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
         self.advance();
-        self.expect(TokenType::OpenRound);
-        let condition = self.parseExpression();
-        self.expect(TokenType::CloseRound);
-        let body = self.parseStatement();
+        self.expect(TokenType::OpenRound)?;
+        let condition = self.parseExpression()?;
+        self.expect(TokenType::CloseRound)?;
+        let body = self.parseStatement()?;
 
-        AST {
+        Ok(AST {
             Node: ASTNode::While {
                 condition: Box::new(condition),
                 body: Box::new(body),
@@ -1123,16 +1127,16 @@ impl Parser {
                 start_token,
                 end_token: self.pos,
             },
-        }
+        })
     }
 
     ///  All of the for loops are going to be converted down into while loops since
     ///      rust doesnt easily support classic for loops
     ///      functionality should be identical though
-    fn parseFor(&mut self) -> AST {
+    fn parseFor(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
         self.advance();
-        self.expect(TokenType::OpenRound);
+        self.expect(TokenType::OpenRound)?;
 
         //  look for the first part of the if
         //      may be empty
@@ -1141,14 +1145,14 @@ impl Parser {
             None
         } else if *self.peekType() == TokenType::Keyword {
             //  full normal decleration
-            Some(self.parseDeclaration())
+            Some(self.parseDeclaration()?)
         } else {
             //  other cases such as
             //      int i;
             //      for (i = 0; i < 10; i++)
             //  ie, not a full decleration to start with
-            let expr = self.parseExpression();
-            self.expect(TokenType::Semicolon);
+            let expr = self.parseExpression()?;
+            self.expect(TokenType::Semicolon)?;
             Some(AST {
                 Node: ASTNode::Expression(Box::new(expr)),
                 Span: Span {
@@ -1169,8 +1173,8 @@ impl Parser {
                 },
             }
         } else {
-            let expr = self.parseExpression();
-            self.expect(TokenType::Semicolon);
+            let expr = self.parseExpression()?;
+            self.expect(TokenType::Semicolon)?;
             expr
         };
 
@@ -1178,12 +1182,12 @@ impl Parser {
         let increment = if *self.peekType() == TokenType::CloseRound {
             None
         } else {
-            Some(self.parseExpression())
+            Some(self.parseExpression()?)
         };
-        self.expect(TokenType::CloseRound);
+        self.expect(TokenType::CloseRound)?;
 
         //  parse the inside of the while loop
-        let loop_body_stmt = self.parseStatement();
+        let loop_body_stmt = self.parseStatement()?;
         let mut while_body = match loop_body_stmt.Node {
             ASTNode::Compound(stmts) => stmts,
             _ => vec![loop_body_stmt],
@@ -1220,20 +1224,20 @@ impl Parser {
 
         //  Put the initlializer at the before the while loop if necesary
         if let Some(init_stmt) = init {
-            AST {
+            Ok(AST {
                 Node: ASTNode::Compound(vec![init_stmt, while_ast]),
                 Span: Span {
                     start_token,
                     end_token: self.pos,
                 },
-            }
+            })
         } else {
-            while_ast
+            Ok(while_ast)
         }
     }
 
     /// Entry point into the massive recursive stack that is expression parsing
-    fn parseExpression(&mut self) -> AST {
+    fn parseExpression(&mut self) -> Result<AST, CRustError> {
         self.parseAssignment()
     }
 
@@ -1251,11 +1255,11 @@ impl Parser {
 
 
     /// Parses anything that is setting a value to a variable
-    fn parseAssignment(&mut self) -> AST {
+    fn parseAssignment(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
 
         //  let the recursion begin
-        let left = self.parseLogicalOr();
+        let left = self.parseLogicalOr()?;
 
         //  is it a valid operation for assignment
         let op = match self.peekType() {
@@ -1268,12 +1272,12 @@ impl Parser {
             | TokenType::AmpersandEquals
             | TokenType::PipeEquals
             | TokenType::CaretEquals => self.consumeType(),
-            _ => return left,
+            _ => return Ok(left),
         };
 
-        let right = self.parseAssignment();
+        let right = self.parseAssignment()?;
 
-        AST {
+        Ok(AST {
             Node: ASTNode::Binary {
                 op,
                 left: Box::new(left),
@@ -1283,10 +1287,10 @@ impl Parser {
                 start_token,
                 end_token: self.pos,
             },
-        }
+        })
     }
 
-    fn parseLogicalOr(&mut self) -> AST {
+    fn parseLogicalOr(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(
             //  Refrence to a list of valid tokens, some allow multiple types
             &[TokenType::PipePipe],
@@ -1294,30 +1298,30 @@ impl Parser {
         )
     }
 
-    fn parseLogicalAnd(&mut self) -> AST {
+    fn parseLogicalAnd(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(&[TokenType::AmpersandAmpersand], Self::parseBitwiseOr)
     }
 
-    fn parseBitwiseOr(&mut self) -> AST {
+    fn parseBitwiseOr(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(&[TokenType::Pipe], Self::parseBitwiseXor)
     }
 
-    fn parseBitwiseXor(&mut self) -> AST {
+    fn parseBitwiseXor(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(&[TokenType::Caret], Self::parseBitwiseAnd)
     }
 
-    fn parseBitwiseAnd(&mut self) -> AST {
+    fn parseBitwiseAnd(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(&[TokenType::Ampersand], Self::parseEquality)
     }
 
-    fn parseEquality(&mut self) -> AST {
+    fn parseEquality(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(
             &[TokenType::EqualsEquals, TokenType::NotEquals],
             Self::parseRelational,
         )
     }
 
-    fn parseRelational(&mut self) -> AST {
+    fn parseRelational(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(
             &[
                 TokenType::OpenAngle,
@@ -1329,21 +1333,21 @@ impl Parser {
         )
     }
 
-    fn parseShift(&mut self) -> AST {
+    fn parseShift(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(
             &[TokenType::ShiftLeft, TokenType::ShiftRight],
             Self::parseAdditive,
         )
     }
 
-    fn parseAdditive(&mut self) -> AST {
+    fn parseAdditive(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(
             &[TokenType::Plus, TokenType::Minus],
             Self::parseMultiplicative,
         )
     }
 
-    fn parseMultiplicative(&mut self) -> AST {
+    fn parseMultiplicative(&mut self) -> Result<AST, CRustError> {
         self.parseBinary(
             &[TokenType::Asterisk, TokenType::Slash, TokenType::Percent],
             Self::parseUnary,
@@ -1354,15 +1358,15 @@ impl Parser {
     ///  Functions call this function and pass in the next option.
     ///      If the current Token is not valid for a given operation,
     ///      it moves to the next
-    fn parseBinary(&mut self, ops: &[TokenType], next: fn(&mut Self) -> AST) -> AST {
+    fn parseBinary(&mut self, ops: &[TokenType], next: fn(&mut Self) -> Result<AST, CRustError>) -> Result<AST, CRustError> {
         let start_token = self.pos;
-        let mut left = next(self);
+        let mut left = next(self)?;
 
         while ops.contains(self.peekType()) {
             let op = self.peekType().clone();
             self.advance();
 
-            let right = next(self);
+            let right = next(self)?;
             left = AST {
                 Node: ASTNode::Binary {
                     op: op.clone(),
@@ -1376,11 +1380,11 @@ impl Parser {
             }
         }
 
-        left
+        Ok(left)
     }
 
     /// unary operations like not or negation or ++/-- or pointer stuff
-    fn parseUnary(&mut self) -> AST {
+    fn parseUnary(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
 
         let valid_unary = &[
@@ -1396,8 +1400,8 @@ impl Parser {
         if valid_unary.contains(self.peekType()) {
             let op = self.peekType().clone();
             self.advance();
-            let expr = self.parseUnary();
-            return AST {
+            let expr = self.parseUnary()?;
+            return Ok(AST {
                 Node: ASTNode::Unary {
                     op,
                     expr: Box::new(expr),
@@ -1406,16 +1410,16 @@ impl Parser {
                     start_token,
                     end_token: self.pos,
                 },
-            };
+            });
         }
 
         self.parsePostfix()
     }
 
     /// Any operatiors that are on the right hand side
-    fn parsePostfix(&mut self) -> AST {
+    fn parsePostfix(&mut self) -> Result<AST, CRustError> {
         let start_token = self.pos;
-        let mut expr = self.parsePrimary();
+        let mut expr = self.parsePrimary()?;
 
         //  All other operators are right associative ie 1 * (2 * 3)
         //  But these ones are the opposite ie ( function.call() ).call2()
@@ -1449,8 +1453,8 @@ impl Parser {
                 //  Array indexing
                 TokenType::OpenSquare => {
                     self.advance();
-                    let index = self.parseExpression();
-                    self.expect(TokenType::CloseSquare);
+                    let index = self.parseExpression()?;
+                    self.expect(TokenType::CloseSquare)?;
                     expr = AST {
                         //  Using opensquare as the operation since there isnt a specific one for this
                         Node: ASTNode::Binary {
@@ -1484,8 +1488,8 @@ impl Parser {
                 //  Example "function(parameter1).function2(parameter2)"
                 TokenType::OpenRound => {
                     self.advance();
-                    let args = self.parseArguments();
-                    self.expect(TokenType::CloseRound);
+                    let args = self.parseArguments()?;
+                    self.expect(TokenType::CloseRound)?;
 
                     expr = AST {
                         Node: ASTNode::Call {
@@ -1503,59 +1507,59 @@ impl Parser {
             }
         }
 
-        expr
+        Ok(expr)
     }
 
     /// Parse the lead nodes of all the expressions
     /// any actual values or function calls end up here
     /// also handles manual parethesis
-    fn parsePrimary(&mut self) -> AST {
+    fn parsePrimary(&mut self) -> Result<AST, CRustError> {
         let start = self.pos;
 
         match self.peekType() {
             //  Parenthesised expression
             TokenType::OpenRound => {
                 self.advance();
-                let expr = self.parseExpression();
-                self.expect(TokenType::CloseRound);
-                expr
+                let expr = self.parseExpression()?;
+                self.expect(TokenType::CloseRound)?;
+                Ok(expr)
             }
 
             //  Integer / float literals
             TokenType::Integer | TokenType::Float => {
                 let val = self.peek().value.clone();
                 self.advance();
-                AST {
+                Ok(AST {
                     Node: ASTNode::Literal(LiteralType::Number(val)),
                     Span: Span {
                         start_token: start,
                         end_token: self.pos,
                     },
-                }
+                })
             }
 
             //  Char / string literals
             TokenType::StringLiteral => {
                 let val = self.peek().value.clone();
                 self.advance();
-                AST {
+                Ok(AST {
                     Node: ASTNode::Literal(LiteralType::String(val)),
                     Span: Span {
                         start_token: start,
                         end_token: self.pos,
                     },
-                }
+                })
             }
             TokenType::CharLiteral => {
                 let val = self.peek().value.clone();
                 self.advance();
-                AST {
+                Ok(AST {
                     Node: ASTNode::Literal(LiteralType::Char(val)),
                     Span: Span {
                         start_token: start,
                         end_token: self.pos,
                     },
-                }
+                })
             }
 
             //  Identifier
@@ -1567,7 +1571,7 @@ impl Parser {
                     self.advance(); // consume '::'
 
                     if *self.peekType() != TokenType::Identifier {
-                        self.expect(TokenType::Identifier);
+                        self.expect(TokenType::Identifier)?;
                     }
 
                     let inner = self.peek().value.clone();
@@ -1616,10 +1620,10 @@ impl Parser {
                     };
 
                     self.advance(); // consume '('
-                    let arguments = self.parseArguments();
-                    self.expect(TokenType::CloseRound);
+                    let arguments = self.parseArguments()?;
+                    self.expect(TokenType::CloseRound)?;
 
-                    AST {
+                    Ok(AST {
                         Node: ASTNode::Call {
                             callee: Box::new(callee_node),
                             arguments,
@@ -1628,38 +1632,40 @@ impl Parser {
                             start_token: start,
                             end_token: self.pos,
                         },
-                    }
+                    })
                 } else {
-                    AST {
+                    Ok(AST {
                         Node: ASTNode::Identifier(name),
                         Span: Span {
                             start_token: start,
                             end_token: self.pos,
                         },
-                    }
+                    })
                 }
             }
 
             _ => {
-                println!("TESTING");
-                panic!("Unexpected token in expression: {:?}", self.peek());
+                Err(CRustError::ParseError {
+                    message: format!("Unexpected token in expression: {:?}", self.peek()), 
+                    token_idx: self.pos
+                })
             }
         }
     }
 
     /// helper to get function call arguments
-    fn parseArguments(&mut self) -> Vec<AST> {
+    fn parseArguments(&mut self) -> Result<Vec<AST>, CRustError> {
         let mut args = Vec::new();
 
         while *self.peekType() != TokenType::CloseRound {
-            args.push(self.parseExpression());
+            args.push(self.parseExpression()?);
 
             if *self.peekType() == TokenType::Comma {
                 self.advance();
             }
         }
 
-        args
+        Ok(args)
     }
 
     /// what is the next token?
@@ -1696,16 +1702,18 @@ impl Parser {
     }
 
     /// Fail if the token passed is not the token we are seeing
-    fn expect(&mut self, t: TokenType) {
+    fn expect(&mut self, t: TokenType) -> Result<(), CRustError>
+    {
         if *self.peekType() != t {
-            panic!(
-                "Expected {:?}, got {:?} at {:?}",
-                t,
-                self.peekType(),
-                self.pos
-            );
+            return Err(CRustError::ParseError
+            {
+                message : format!("Expected {:?}, got {:?}",t,self.peekType()),
+                token_idx : self.pos
+            });
             //  TODO: Improve error handling here
         }
         self.advance();
+
+        Ok(())
     }
 }

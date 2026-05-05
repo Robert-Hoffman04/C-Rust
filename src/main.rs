@@ -18,6 +18,17 @@ use parser::Parser;
 mod writer;
 use writer::writer;
 
+#[derive(Debug)]
+enum CRustError
+{
+    ParseError{
+        message   : String,
+        token_idx : usize
+    }
+}
+
+
+
 /*
  *  current valid args are "-o <output_filename>"" and just "<input_filename>""
  */
@@ -86,7 +97,7 @@ fn handleArgs(mut args: Vec<String>) -> Result<Arguments, Error> {
         //  Seperate off the ending ".***" extension
         //      If none present just use full noame
         let mut name = match arguments.input_file.rfind(".") {
-            Some(index) => arguments.input_file.clone().split_off(index),
+            Some(index) => {let mut temp = arguments.input_file.clone(); let _ = temp.split_off(index); temp},
             None => arguments.input_file.clone(),
         };
         //name.push_str(".rs"); //  Add rust out extension
@@ -108,15 +119,39 @@ fn process(args: Arguments) -> () {
     }
     println!("\n\n");
 
-    let mut tokenizer = Tokenizer::new(processor.lines);
+    let mut tokenizer = Tokenizer::new(processor.lines.clone());
     tokenizer.tokenize();
 
     for (i, token) in (&tokenizer.tokens).iter().enumerate() {
         println!("{:?}: {:?}", i, token)
     }
 
-    let mut parser = Parser::new(tokenizer.tokens);
-    let ast = parser.parse();
+    let mut parser = Parser::new(tokenizer.tokens.clone());
+    let ast = match parser.parse() {
+        Ok(val) => val,
+        Err(val) => {
+            match val
+            {
+                CRustError::ParseError { message, token_idx } => {
+                    println!("FATAL ERROR: {}", message);
+
+                    let errorToken = tokenizer.tokens[token_idx].clone();
+                    let sourceStart = processor.lines[errorToken.start_line].clone();
+                    let sourceEnd = processor.lines[errorToken.end_line].clone();
+
+
+                    println!("{}: for character {} of line {} to character {} of line {}",
+                        sourceStart.file,
+                        errorToken.start_char,
+                        sourceStart.line_number,
+                        errorToken.end_char,
+                        sourceEnd.line_number
+                    )
+                }
+            }
+            return;
+        }
+    };
 
     println!("\n\n\nParseTree\n{}", ast.Node);
     
@@ -221,7 +256,7 @@ mod tests {
         let mut t = Tokenizer::new(make_source(SRC));
         t.tokenize();
         let mut p = Parser::new(t.tokens);
-        match p.parse().Node {
+        match p.parse().expect("Parser Failed").Node {
             ASTNode::Root(nodes) => nodes,
             _ => panic!("Expected Root node"),
         }
