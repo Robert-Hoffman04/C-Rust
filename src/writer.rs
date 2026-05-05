@@ -1,6 +1,7 @@
 use crate::parser::{AST, ASTNode, CType, LiteralType, StructMember, escape_str};
 use crate::tokenizer::TokenType;
 use std::collections::HashMap;
+use std::fmt::write;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result, Write}; //  TODO Make own error
 //  help generate placeholder variable names so they dont conflict
@@ -89,6 +90,8 @@ fn write_node(
                 write!(file, "\n")?;
             }
         }
+        
+        ASTNode::GenericKeyword(keyword) => {indent(file, depth)?; writeln!(file, "{};", keyword)?}
 
         ASTNode::Include(path) => {
             //  the original include statments are passed all the way from the preprocessor, completly unchanged for the most part
@@ -688,10 +691,12 @@ fn write_expr(node: &ASTNode, file: &mut File, enum_map: &HashMap<String, String
             }
         }
         ASTNode::Call {
-            function_name,
+            callee,
             arguments,
         } => {
-            write!(file, "{}(", function_name)?;
+
+            write_expr(&callee.Node, file, enum_map)?;
+            write!(file, "(")?;
             for (i, arg) in arguments.iter().enumerate() {
                 write_expr(&arg.Node, file, enum_map)?;
                 if i != arguments.len() - 1 {
@@ -716,7 +721,7 @@ fn escape_literal(lit: &LiteralType) -> String {
     }
 }
 
-        /// Another recursive function to get the rust equivalent type for C types
+/// Another recursive function to get the rust equivalent type for C types
 // Seeing a pattern yet /\
 fn map_type(c_type: &CType) -> (String, bool) {
     match c_type {
@@ -799,8 +804,8 @@ fn map_operation(op: &TokenType) -> &str {
         TokenType::ShiftRight => ">>",
 
         TokenType::Period => ".",
-
         TokenType::Arrow => ".",
+        TokenType::ColonColon => "::",
 
         _ => "/* unknown_op */",
     }

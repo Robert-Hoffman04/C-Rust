@@ -1,20 +1,8 @@
-#include <std::fmt>
-
-int main()
+void main()
 {
-    float j = 0.0;
+    int j = 0;
     char t = '\n';
-    printf("Float value is now: %j%c", j, t);
+    Macro::print("int value is now: {}{}", j, t);
     for (j; j < 10; j++)
-        printf("Float value is now: %d%c", j, t);
-
-    if (j > 7)
-        printf("this if has no brackets\n");
-    else if (j > 8)
-        printf("No bracket Else if\n");
-    else
-    {
-        printf("This was printed across");
-        printf("two lines in an else block\n");
-    }
+        Macro::print("int value is now: {}{}", j, t);
 }

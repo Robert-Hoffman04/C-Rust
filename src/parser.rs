@@ -81,7 +81,7 @@ pub enum ASTNode {
     Identifier(String), //  variable names
 
     Call {
-        function_name: String,
+        callee: Box<AST>,
         arguments: Vec<AST>,
     },
 
@@ -105,6 +105,9 @@ pub enum ASTNode {
         params: Vec<AST>,
         body: Vec<AST>,
     },
+
+    //  for things like continue and break that are single tokens
+    GenericKeyword(String)
 }
 
 /// Stores functions or variables for a struct in the same type
@@ -258,6 +261,7 @@ impl ASTNode {
             ASTNode::Enum { .. } => "Enum",
             ASTNode::Struct { .. } => "Struct",
             ASTNode::FunctionImplement { .. } => "FunctionImplement",
+            ASTNode::GenericKeyword { .. } => "GenericKeyword"
         }
     }
 
@@ -271,7 +275,7 @@ impl ASTNode {
                 val.to_string()
             }
         };
-        
+
         //  Get diffrent data depending on the tpye of the node
         match self {
             ASTNode::Include(path) => vec![fmt("path", path)],
@@ -307,7 +311,7 @@ impl ASTNode {
                     fmt("name", name),
                 ]
             }
-            ASTNode::Call { function_name, .. } => vec![fmt("function_name", function_name)],
+            ASTNode::Call { .. } => vec![],
             ASTNode::Enum {
                 name,
                 implements,
@@ -322,6 +326,7 @@ impl ASTNode {
             ASTNode::Struct {
                 name, implements, ..
             } => vec![fmt("name", name), format!("impliments={:?}", implements)],
+            ASTNode::GenericKeyword(keyword) => vec![fmt("Keyword", keyword)],
 
             //  these dont have any data only children
             ASTNode::Root(_)
@@ -385,7 +390,11 @@ impl ASTNode {
 
             ASTNode::Unary { expr, .. } => vec![("expr", &expr.Node)],
 
-            ASTNode::Call { arguments, .. } => arguments.iter().map(|a| ("arg", &a.Node)).collect(),
+            ASTNode::Call { callee, arguments } => {
+                let mut callChildren: Vec<(&'static str, &ASTNode)> = vec![("callee", &callee.Node)];
+                callChildren.extend(arguments.iter().map(|a| ("arg", &a.Node)));
+                callChildren
+            }
 
             //  Leaves no children
             ASTNode::Include(_) | ASTNode::Literal(..) | ASTNode::Identifier(_) => vec![],
@@ -401,7 +410,8 @@ impl ASTNode {
                     }
                 }
                 c
-            }
+            },
+            ASTNode::GenericKeyword(_) => vec![]
         }
     }
 }
@@ -429,26 +439,22 @@ impl Parser {
         Parser {
             tokens,
             pos: 0,
-            struct_names: vec![]
+            struct_names: vec![],
         }
     }
 
-    ///`Actual parse function called by main
+    /// Actual parse function called by main
     pub fn parse(&mut self) -> AST {
-
         //  Scan the incoming token list for any structure definitions ahead of time
         //      this lets me later change their constructors into the proper "::new()" function
         let mut willBeStruct = false;
-        for token in &self.tokens
-        {
-            if token.value == "struct"
-            {
+        for token in &self.tokens {
+            if token.value == "struct" {
                 willBeStruct = true;
                 continue;
             }
 
-            if willBeStruct
-            {
+            if willBeStruct {
                 self.struct_names.push(token.value.clone());
             }
             willBeStruct = false;
@@ -677,7 +683,7 @@ impl Parser {
                 visibility = matches!(self.consumeValue().as_str(), "public");
                 self.expect(TokenType::Colon);
             }
-            
+
             //  mark the current possition as the start of a decleration
             let member_start = self.pos;
             let var_type = self.consumeTypeName();
@@ -848,6 +854,7 @@ impl Parser {
         }
     }
 
+    /// Lookahead in the token stream to decide if its a dcleration or not
     fn isDeclaration(&self) -> bool {
         let current_is_type = matches!(self.peekType(), TokenType::Keyword | TokenType::Identifier);
 
@@ -859,6 +866,7 @@ impl Parser {
         {
             let mut depth = 1;
             lookahead += 1;
+            //  Might see something like "Vec<Vec<int>>" so we need to track internal type depth
             while lookahead < self.tokens.len() && depth > 0 {
                 match self.tokens[lookahead].token_type {
                     TokenType::OpenAngle => depth += 1,
@@ -868,26 +876,23 @@ impl Parser {
                 lookahead += 1;
             }
         }
- 
+
         //  Skip past any pointer stars after the type or after the template close
         while lookahead < self.tokens.len()
             && self.tokens[lookahead].token_type == TokenType::Asterisk
+            && self.tokens[lookahead].token_type == TokenType::Ampersand
         {
             lookahead += 1;
         }
- 
+
         let next_is_name = lookahead < self.tokens.len()
             && matches!(self.tokens[lookahead].token_type, TokenType::Identifier);
- 
-        current_is_type && next_is_name
 
+        current_is_type && next_is_name
     }
 
-    //  Helper to make sure type names include their pointer portions
+    ///  Helper to make sure type names include other portions
     fn consumeTypeName(&mut self) -> CType {
-
-        
-
         let base = self.consumeValue();
 
         let mut type_ = match base.as_str() {
@@ -948,6 +953,7 @@ impl Parser {
         type_
     }
 
+    /// Helper for extracting parameters from function declerations 
     fn parseParams(&mut self) -> Vec<AST> {
         let mut params = Vec::new();
 
@@ -975,6 +981,7 @@ impl Parser {
         params
     }
 
+    /// Parse the inside of a set of curly brackets
     fn parseBlock(&mut self) -> Vec<AST> {
         let mut body = Vec::new();
         self.expect(TokenType::OpenCurly);
@@ -987,9 +994,11 @@ impl Parser {
         body
     }
 
+    /// parse the insides of ifs, whiles, fors, etc that have optional brackets or single lines
     fn parseStatement(&mut self) -> AST {
         let start_token = self.pos;
 
+        //  if we see a curly, it is a block so run that 
         if *self.peekType() == TokenType::OpenCurly {
             let block = self.parseBlock();
             return AST {
@@ -1001,6 +1010,7 @@ impl Parser {
             };
         }
 
+        //  otherwise, its a single line so figure out what its doing
         if *self.peekType() == TokenType::Keyword {
             match self.peek().value.as_str() {
                 "return" => {
@@ -1025,6 +1035,22 @@ impl Parser {
                 "if" => return self.parseIf(),
                 "while" => return self.parseWhile(),
                 "for" => return self.parseFor(),
+                "continue" => {
+                    self.advance();
+                    self.expect(TokenType::Semicolon);
+                    return AST {
+                        Node: ASTNode::GenericKeyword(String::from("continue")),
+                        Span: Span { start_token, end_token: self.pos },
+                    };
+                }
+                "break" => {
+                    self.advance();
+                    self.expect(TokenType::Semicolon);
+                    return AST {
+                        Node: ASTNode::GenericKeyword(String::from("break")),
+                        Span: Span { start_token, end_token: self.pos },
+                    };
+                }
                 _ => return self.parseDeclaration(),
             }
         }
@@ -1044,6 +1070,7 @@ impl Parser {
         }
     }
 
+    /// parse if statments
     fn parseIf(&mut self) -> AST {
         let start_token = self.pos;
         self.advance();
@@ -1078,6 +1105,7 @@ impl Parser {
         }
     }
 
+    /// parse while statements
     fn parseWhile(&mut self) -> AST {
         let start_token = self.pos;
         self.advance();
@@ -1098,20 +1126,27 @@ impl Parser {
         }
     }
 
-    //  All of the for loops are going to be converted down into while loops since
-    //      rust doesnt easily support classic for loops
-    //      functionality should be identical though
+    ///  All of the for loops are going to be converted down into while loops since
+    ///      rust doesnt easily support classic for loops
+    ///      functionality should be identical though
     fn parseFor(&mut self) -> AST {
         let start_token = self.pos;
         self.advance();
         self.expect(TokenType::OpenRound);
 
+        //  look for the first part of the if
+        //      may be empty
         let init = if *self.peekType() == TokenType::Semicolon {
             self.advance();
             None
         } else if *self.peekType() == TokenType::Keyword {
+            //  full normal decleration
             Some(self.parseDeclaration())
         } else {
+            //  other cases such as
+            //      int i;
+            //      for (i = 0; i < 10; i++)
+            //  ie, not a full decleration to start with
             let expr = self.parseExpression();
             self.expect(TokenType::Semicolon);
             Some(AST {
@@ -1123,6 +1158,7 @@ impl Parser {
             })
         };
 
+        //  get the middle portion
         let condition = if *self.peekType() == TokenType::Semicolon {
             self.advance();
             AST {
@@ -1138,6 +1174,7 @@ impl Parser {
             expr
         };
 
+        //  get the ending operation
         let increment = if *self.peekType() == TokenType::CloseRound {
             None
         } else {
@@ -1145,12 +1182,14 @@ impl Parser {
         };
         self.expect(TokenType::CloseRound);
 
+        //  parse the inside of the while loop
         let loop_body_stmt = self.parseStatement();
         let mut while_body = match loop_body_stmt.Node {
             ASTNode::Compound(stmts) => stmts,
             _ => vec![loop_body_stmt],
         };
 
+        //  add the increment portion of the for loop to the end of the loop body
         if let Some(inc) = increment {
             while_body.push(AST {
                 Node: ASTNode::Expression(Box::new(inc)),
@@ -1161,6 +1200,7 @@ impl Parser {
             });
         }
 
+        //  create a while loop with the same condition and the added increment at the end
         let while_ast = AST {
             Node: ASTNode::While {
                 condition: Box::new(condition),
@@ -1178,6 +1218,7 @@ impl Parser {
             },
         };
 
+        //  Put the initlializer at the before the while loop if necesary
         if let Some(init_stmt) = init {
             AST {
                 Node: ASTNode::Compound(vec![init_stmt, while_ast]),
@@ -1191,14 +1232,32 @@ impl Parser {
         }
     }
 
+    /// Entry point into the massive recursive stack that is expression parsing
     fn parseExpression(&mut self) -> AST {
         self.parseAssignment()
     }
 
+    /*
+    
+        Im choosing here to try and explain the next dozen function because they basically all do the same thing
+        To preserve order of operations in the parse tree, all expressions basically get forced parethesis.
+        This is represented as an expression being a child of an expresion being a child of an expression (etc...)
+        These function just decend upwards looking for the highest priority operation to either side of them, and 
+        choosing which it should be with based on that
+
+        I dont full understand the reasoning for doing it like this, but the last time i tried to write a parser this was how I did it so
+    
+     */
+
+
+    /// Parses anything that is setting a value to a variable
     fn parseAssignment(&mut self) -> AST {
         let start_token = self.pos;
+
+        //  let the recursion begin
         let left = self.parseLogicalOr();
 
+        //  is it a valid operation for assignment
         let op = match self.peekType() {
             TokenType::Equals
             | TokenType::PlusEquals
@@ -1291,10 +1350,10 @@ impl Parser {
         )
     }
 
-    //  This is the part that actually handles the ordering of operations
-    //  Functions call this function and pass in the next option.
-    //      If the current Token is not valid for a given operation,
-    //      it moves to the next
+    ///  This is the part that actually handles the ordering of operations
+    ///  Functions call this function and pass in the next option.
+    ///      If the current Token is not valid for a given operation,
+    ///      it moves to the next
     fn parseBinary(&mut self, ops: &[TokenType], next: fn(&mut Self) -> AST) -> AST {
         let start_token = self.pos;
         let mut left = next(self);
@@ -1320,6 +1379,7 @@ impl Parser {
         left
     }
 
+    /// unary operations like not or negation or ++/-- or pointer stuff
     fn parseUnary(&mut self) -> AST {
         let start_token = self.pos;
 
@@ -1352,6 +1412,7 @@ impl Parser {
         self.parsePostfix()
     }
 
+    /// Any operatiors that are on the right hand side
     fn parsePostfix(&mut self) -> AST {
         let start_token = self.pos;
         let mut expr = self.parsePrimary();
@@ -1419,17 +1480,16 @@ impl Parser {
                     self.advance();
                 }
 
-                //  Explicit case where a function returns a function refrence that is immediatly called
-                //  Example "function(parameter1)(parameter2)"
+                //  Explicit case where a function returns and is immediatly called
+                //  Example "function(parameter1).function2(parameter2)"
                 TokenType::OpenRound => {
                     self.advance();
                     let args = self.parseArguments();
                     self.expect(TokenType::CloseRound);
 
-                    let name = self.extract_name(&Box::new(expr));
                     expr = AST {
                         Node: ASTNode::Call {
-                            function_name: name,
+                            callee: Box::new(expr),
                             arguments: args,
                         },
                         Span: Span {
@@ -1446,37 +1506,9 @@ impl Parser {
         expr
     }
 
-    //  This handles function calls in relation to type's
-    //      Example: io::stdout() or node.value.to_string()
-    //  Also handles the macro override functions
-    //      Macro::print -> print!
-    fn extract_name(&self, node: &Box<AST>) -> String {
-        match &node.Node {
-            ASTNode::Identifier(name) => name.clone(),
-            ASTNode::Binary { op, left, right } => {
-                let sep = match op {
-                    TokenType::ColonColon => "::",
-                    TokenType::Period => ".",
-                    TokenType::Arrow => "->",
-                    _ => {
-                        println!("TESTING");
-                        panic!("Unexpected operator in call target")},
-                };
-                let leftName = self.extract_name(left);
-                if leftName.chars().any(|c| matches!(c, ':' | '.' | '>')) {
-                    return format!("{}{}{}", leftName, sep, self.extract_name(right));
-                }
-
-                if leftName == "Macro" {
-                    return format!("{}!", self.extract_name(right));
-                }
-
-                format!("{}{}{}", leftName, sep, self.extract_name(right))
-            }
-            _ => panic!("Unresolvable call target"),
-        }
-    }
-
+    /// Parse the lead nodes of all the expressions
+    /// any actual values or function calls end up here
+    /// also handles manual parethesis
     fn parsePrimary(&mut self) -> AST {
         let start = self.pos;
 
@@ -1528,26 +1560,68 @@ impl Parser {
 
             //  Identifier
             TokenType::Identifier => {
-                let name = self.peek().value.clone();
+                let mut name = self.peek().value.clone();
                 self.advance();
 
+                if name == "Macro" && *self.peekType() == TokenType::ColonColon {
+                    self.advance(); // consume '::'
+
+                    if *self.peekType() != TokenType::Identifier {
+                        self.expect(TokenType::Identifier);
+                    }
+
+                    let inner = self.peek().value.clone();
+                    self.advance();
+
+                    // Replace with "(any)!"
+                    name = format!("{}!", inner);
+                }
+
                 if *self.peekType() == TokenType::OpenRound {
-                    
-                    //  Constructor mapping.
-                    //  if the function name matches an existing struct name, replace the function call with "name::new()"
-                    let function_name = if self.struct_names.contains(&name) {
-                        format!("{}::new", name)
+                    // Map struct constructors to StructName::new
+                    let callee_node = if self.struct_names.contains(&name) {
+                        // Build a Binary node here with a :: operator
+                        AST {
+                            Node: ASTNode::Binary {
+                                op: TokenType::ColonColon,
+                                left: Box::new(AST {
+                                    Node: ASTNode::Identifier(name.clone()),
+                                    Span: Span {
+                                        start_token: start,
+                                        end_token: start + 1,
+                                    },
+                                }),
+                                right: Box::new(AST {
+                                    Node: ASTNode::Identifier("new".to_string()),
+                                    Span: Span {
+                                        start_token: start + 1,
+                                        end_token: start + 2,
+                                    },
+                                }),
+                            },
+                            Span: Span {
+                                start_token: start,
+                                end_token: start + 2,
+                            },
+                        }
                     } else {
-                        name
+                        
+                        AST {
+                            Node: ASTNode::Identifier(name),
+                            Span: Span {
+                                start_token: start,
+                                end_token: self.pos,
+                            },
+                        }
                     };
 
-
-                    self.advance();
+                    self.advance(); // consume '('
                     let arguments = self.parseArguments();
                     self.expect(TokenType::CloseRound);
+
                     AST {
                         Node: ASTNode::Call {
-                            function_name,
+                            callee: Box::new(callee_node),
                             arguments,
                         },
                         Span: Span {
@@ -1573,6 +1647,7 @@ impl Parser {
         }
     }
 
+    /// helper to get function call arguments
     fn parseArguments(&mut self) -> Vec<AST> {
         let mut args = Vec::new();
 
@@ -1587,35 +1662,40 @@ impl Parser {
         args
     }
 
+    /// what is the next token?
     fn peek(&self) -> &Token {
         &(self.tokens[self.pos])
     }
 
+    /// what is the next token type?
     fn peekType(&self) -> &TokenType {
         &self.tokens[self.pos].token_type
     }
 
+    /// are there tokens left?
     fn has_tokens(&self) -> bool {
         self.pos < self.tokens.len()
     }
 
+    /// move token position forward
     fn advance(&mut self) {
         self.pos += 1;
     }
 
-    //  cant borrow out a token type, then advance i guess?
-    //      Honestly i still dont get borrowing well enough but this works so
+    /// get ownership of token type and advance 
     fn consumeType(&mut self) -> TokenType {
         let t = self.tokens[self.pos].token_type.clone();
         self.pos += 1;
         t
     }
+    /// get ownership of token value and advance 
     fn consumeValue(&mut self) -> String {
         let t = self.tokens[self.pos].value.clone();
         self.pos += 1;
         t
     }
 
+    /// Fail if the token passed is not the token we are seeing
     fn expect(&mut self, t: TokenType) {
         if *self.peekType() != t {
             panic!(

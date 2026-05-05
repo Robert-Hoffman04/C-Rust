@@ -1,9 +1,9 @@
-use core::panic;
 use std::fmt;
 use std::vec;
 
 use super::preProcessor::SourceLine;
 
+///  All of the valid token types for the syntax
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     Keyword,
@@ -58,13 +58,15 @@ pub enum TokenType {
     ColonColon
 }
 
-//  so i can use to_string method to get the name
+///  helper for to string method on tokens
 impl fmt::Display for TokenType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
+/// all of the c/c++ keywords that could be used.
+/// not all actually do get used in my code
 const keywords: [&str; 35] = [
     "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else",
     "enum", "extern", "float", "for", "goto", "if", "impliments", "inline", "int", "long", "register",
@@ -72,6 +74,8 @@ const keywords: [&str; 35] = [
     "union", "unsigned", "void", "volatile", "while",
 ];
 
+/// Main object to store token position data
+/// the start and end lines actually point to indexs in the sourceline vector
 #[derive(Debug)]
 pub struct Token {
     pub token_type: TokenType,
@@ -94,6 +98,7 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
+    /// constructor for struct
     pub fn new(lines: Vec<SourceLine>) -> Tokenizer {
         Tokenizer {
             lines,
@@ -104,6 +109,7 @@ impl Tokenizer {
         }
     }
 
+    /// main entry point for tokenization process
     pub fn tokenize(&mut self) {
         let mut char_stack = String::new();
         let mut stack_line_start = 0usize;

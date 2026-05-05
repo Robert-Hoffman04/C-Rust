@@ -89,7 +89,7 @@ fn handleArgs(mut args: Vec<String>) -> Result<Arguments, Error> {
             Some(index) => arguments.input_file.clone().split_off(index),
             None => arguments.input_file.clone(),
         };
-        name.push_str(".rs"); //  Add rust out extension
+        //name.push_str(".rs"); //  Add rust out extension
         //  TODO: Decide if this should be a rs file of if it should be an executable path
 
         arguments.output_dir = name;
@@ -175,15 +175,14 @@ fn cargoBuildOrRun(dir_name: String, run: bool) -> std::io::Result<()>
 fn main() {
     let options = handleArgs(
         env::args().collect()
-        //  Hard to use actual arguments through vscode run
-        /*
-        vec![
+        //  Hard to use actual arguments through vscode debugger
+        
+        /*vec![
             "C-Rust".to_string(),
-            "test.crs".to_string(),
+            "slides.crs".to_string(),
             "-o".to_string(),
             "output".to_string(),
-        ],
-        */
+        ],*/
     );
 
     let arguments = match options {
@@ -273,11 +272,16 @@ mod tests {
                 body: Some(body), ..
             } => match &body[0].Node {
                 ASTNode::Expression(inner) => match &inner.Node {
-                    ASTNode::Call { function_name, .. } => {
-                        assert_eq!(
-                            function_name, "print!",
-                            "Expected macro call rewritten to print!"
-                        );
+                    ASTNode::Call { callee, .. } => {
+                        match &callee.Node {
+                            ASTNode::Identifier(name) => {
+                                assert_eq!(
+                                    name, "print!",
+                                    "Expected macro call rewritten to print!"
+                                );
+                            }
+                            _ => panic!("Expected Identifier in callee"),
+                        }
                     }
                     _ => panic!("Expected Call inside Expression"),
                 },

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, ops::Index, process::Output, vec};
 use regex::Regex;
 
-//  This stuct is responsible for keeping track of the source location for error traceback
+///  This stuct is responsible for keeping track of the source location for error traceback
 #[derive(Debug)]
 pub struct SourceLine
 {
@@ -34,8 +34,13 @@ impl PreProcessor
         "#endif",   //Done
     ];
 
+    /// basic constructor
     pub fn new(original_input : String) -> PreProcessor
     {
+        let mut define_map = HashMap::new();
+        //  Add the implicit define of RUST to map so scripts can use it 
+        define_map.insert("RUST".to_string(), "".to_string());
+
         PreProcessor {
             original_input,
 
@@ -44,10 +49,11 @@ impl PreProcessor
             external_imports  : vec![],
             process_index     : 0,
             lines             : vec![],
-            define_map        : HashMap::new()
+            define_map
         }
     }   
 
+    /// Routes all of the import types in the proper way, inserting local files into the context if needed
     fn include(&mut self, mut file : String) -> ()
     {
         println!("Including: {}", file);
@@ -94,8 +100,10 @@ impl PreProcessor
         }
     }
 
+    /// main entry point for running processing
     pub fn process_file(&mut self)
     {
+        //  read the passed file into a vector
         self.lines.extend(
             fileToVec(self.original_input.clone())
         );
@@ -108,13 +116,16 @@ impl PreProcessor
         {
             let line = self.lines[self.process_index].content.clone();
 
+            //  this measn its not a directive
             if !line.starts_with('#')
             {
                 for key in self.define_map.keys()
                 {
+                    // check if any of the words (seperated by white space) are in the list of defined directives
                     let pattern = format!(r"\b{}\b", regex::escape(key));
                     let re = Regex::new(&pattern).unwrap(); //  TODO handle regex errors better. just continue?
 
+                    //  if its a match, replace it
                     if re.is_match(&line)
                     {
                         self.lines[self.process_index].content = line.replace(
@@ -122,24 +133,26 @@ impl PreProcessor
                             self.define_map.get(key).expect("Impossible")   //  Should never fail due to interation
                         );
                         //  Continue without incrementing to check for nested defines
-                        //      Theoretically could cause problems if define is recurssive (TODO?)
+                        //      Theoretically could cause problems if define is recurssive (is that even possible?) (TODO?)
                         continue;
                     }
                 }
 
-                //  Otherwise skip other processing
+                //  If its not a directive we can skip all directive checking
                 self.process_index += 1;
                 continue;
             }
             
             //  Actually simpler if the directive is stored as a &str at this point
+            //  if the line can be split at a space, do it.
+            //      otherwise just keep it all in directive
             let (directive, value) = match line.split_once(' ')
             {
                 None => (line.as_str(), "".to_string()),
                 Some((v1, v2)) => (v1, v2.to_string())
             };
             
-            
+            //  if the directive is not in the list of valid directives, continue on
             if !PreProcessor::RESERVED.contains(&directive)
             {
                 //  TODO: error checking for invalid instead of just continuing
@@ -147,9 +160,11 @@ impl PreProcessor
                 continue;
             }
 
+            //  do different stuff based on directive
             match directive
             {
                 "#define"  => { 
+                    //  add the defined statment to the list of defines
                     let (statment, definition) = match value.split_once(' ')
                     {
                         None => (value, "".to_string()),
@@ -158,9 +173,11 @@ impl PreProcessor
                     self.define_map.insert(statment, definition);
                 }
                 "#undef"   => {
+                    //  remove a define
                     self.define_map.remove(&value);
                 }
                 "#ifdef" => {
+                    //  only push lines if something defined
                     if !self.define_map.contains_key(&value)
                     {
                         println!("Removing: {:?}", self.lines[self.process_index]);
@@ -175,6 +192,7 @@ impl PreProcessor
                     }
                 }
                 "#ifndef" => {
+                    //  only push lines if something not defined
                     if self.define_map.contains_key(&value)
                     {
                         println!("Removing: {:?}", self.lines[self.process_index]);
@@ -188,12 +206,14 @@ impl PreProcessor
                         }
                     }
                 }
+                //  this is checked for in the if blocks so really just do nothing
                 "#endif" => { }
+                //  Save include statements for later
                 "#include" => { 
                     self.include(value);
                     continue; // Removing would get rid of includes that should stay
                 }
-                _ => {} //  TODO
+                _ => {} //  TODO? I actually think it will never get here
             }
 
             //  If it makes it all the way here, then the statment has already been processed and can be thrown away
@@ -205,8 +225,7 @@ impl PreProcessor
     }
 }
 
-
-
+/// helper to read a file into a vector of custom SourceLines
 fn fileToVec(file : String) -> Vec<SourceLine>
 {
     //  Read in the actual text file
