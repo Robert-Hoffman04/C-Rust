@@ -133,7 +133,7 @@ fn process(args: Arguments) -> () {
             match val
             {
                 CRustError::ParseError { message, token_idx } => {
-                    println!("FATAL ERROR: {}", message);
+                    println!("\n\nFATAL ERROR: {}", message);
 
                     let errorToken = tokenizer.tokens[token_idx].clone();
                     let sourceStart = processor.lines[errorToken.start_line].clone();
