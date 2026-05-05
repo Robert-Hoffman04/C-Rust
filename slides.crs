@@ -23,9 +23,7 @@ void main()
     {
         auto opReq = server.recv();
         if (opReq.is_err())
-        {
             continue;
-        }
         Request request = opReq.unwrap();
 
         char* url = request.url();

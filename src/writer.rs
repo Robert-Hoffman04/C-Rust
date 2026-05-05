@@ -278,13 +278,20 @@ fn write_node(
             indent(file, depth)?;
             write!(file, "if ")?;
             write_expr(&condition.Node, file, enum_map)?;
-            writeln!(file, "")?;
-
+            indent(file, depth)?;
+            writeln!(file, "{{");
             write_node(&then_branch.Node, file, depth, enum_map)?;
             indent(file, depth)?;
+            writeln!(file, "}}");
+            indent(file, depth)?;
             writeln!(file, "else")?;
+            indent(file, depth)?;
+            writeln!(file, "{{");
 
             write_node(&else_branch.Node, file, depth, enum_map)?;
+
+            indent(file, depth)?;
+            writeln!(file, "}}");
         }
 
         //  While loops are also easy since most of the complexitly is handled in the parser,
@@ -294,9 +301,12 @@ fn write_node(
             write!(file, "while ")?;
             write_expr(&condition.Node, file, enum_map)?;
             indent(file, depth)?;
-            writeln!(file, "")?;
+            writeln!(file, "{{");
 
             write_node(&body.Node, file, depth + 1, enum_map)?;
+
+            indent(file, depth)?;
+            writeln!(file, "}}");
         }
 
         //  direct mapping from c syntax
